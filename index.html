@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unified FM Radio Station Hub</title>
+  <style>
+    :root {
+      --bg-color: #121216;
+      --card-bg: #1e1e24;
+      --primary-color: #007bff;
+      --primary-hover: #0056b3;
+      --success-color: #28a745;
+      --text-color: #ffffff;
+      --muted-text: #aaaaaa;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+
+    /* Navigation Bar */
+    .nav-bar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 2rem;
+      background: var(--card-bg);
+      padding: 8px;
+      border-radius: 30px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+
+    .nav-btn {
+      padding: 0.6rem 1.2rem;
+      border: none;
+      border-radius: 20px;
+      background: transparent;
+      color: var(--muted-text);
+      font-size: 0.95rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+    }
+
+    .nav-btn:hover {
+      color: var(--text-color);
+    }
+
+    .nav-btn.active {
+      background: var(--primary-color);
+      color: var(--text-color);
+    }
+
+    /* Views Container */
+    .view-card {
+      display: none;
+      background: var(--card-bg);
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+      width: 100%;
+      max-width: 440px;
+      box-sizing: border-box;
+    }
+
+    .view-card.active-view {
+      display: block;
+    }
+
+    h2 { margin-top: 0; margin-bottom: 1rem; text-align: center; color: var(--text-color); }
+    h1 { margin: 0 0 0.5rem 0; font-size: 1.5rem; text-align: center; }
+    .subtitle { margin: 0 0 1.5rem 0; font-size: 1rem; color: var(--muted-text); text-align: center; font-weight: normal; }
+
+    /* Form Elements */
+    .form-group { margin-bottom: 1.25rem; text-align: left; }
+    label { display: block; margin-bottom: 0.5rem; font-weight: 600; color: #ddd; font-size: 0.9rem; }
+    input[type="text"], input[type="date"], input[type="file"], textarea {
+      width: 100%; padding: 0.75rem; border: 1px solid #444; border-radius: 6px; box-sizing: border-box; font-size: 0.95rem;
+      background: #121216; color: #fff; font-family: inherit;
+    }
+    textarea { resize: vertical; height: 70px; }
+    input:focus, textarea:focus { outline: none; border-color: var(--primary-color); }
+
+    .btn {
+      width: 100%; padding: 0.75rem; color: white; border: none; border-radius: 6px;
+      font-size: 1rem; font-weight: bold; cursor: pointer; transition: background 0.2s;
+    }
+    .btn-primary { background-color: var(--primary-color); }
+    .btn-primary:hover { background-color: var(--primary-hover); }
+    .btn-success { background-color: var(--success-color); }
+    .btn-success:hover { background-color: #218838; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .error-text { color: #dc3545; font-size: 0.85rem; margin-top: 0.25rem; display: none; }
+    .info-text { color: var(--success-color); font-size: 0.85rem; margin-top: 0.25rem; display: none; }
+
+    /* Badges & Active Stations */
+    .status-badge {
+      display: inline-block; padding: 0.35rem 0.8rem; border-radius: 20px;
+      font-size: 0.85rem; font-weight: bold; background: #555; margin-bottom: 1.5rem; text-align: center;
+    }
+    .status-playing { background: var(--success-color); }
+    .status-announcing { background: #17a2b8; }
+    .status-youtube { background: #ff0000; }
+    .status-idle { background: #ffc107; color: #000; }
+
+    .active-stations-box {
+      background: #2b2b36; border: 1px dashed var(--primary-color);
+      padding: 0.75rem; border-radius: 6px; margin-bottom: 1.25rem; text-align: left;
+    }
+    .station-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0.5rem; }
+    .station-chip {
+      background: var(--primary-color); color: white; padding: 0.3rem 0.6rem;
+      border-radius: 12px; font-size: 0.85rem; font-weight: bold; cursor: pointer;
+    }
+    .station-chip:hover { background: var(--primary-hover); }
+    .no-stations { color: var(--muted-text); font-size: 0.85rem; font-style: italic; }
+
+    audio { width: 100%; margin-top: 1rem; }
+    #ytContainer { margin-top: 15px; border-radius: 8px; overflow: hidden; display: none; }
+    .center-wrapper { text-align: center; }
+  </style>
+</head>
+<body>
+
+  <nav class="nav-bar">
+    <button class="nav-btn active" onclick="switchTab('uploadView')">📤 Upload</button>
+    <button class="nav-btn" onclick="switchTab('playerView')">📻 Player</button>
+    <button class="nav-btn" onclick="switchTab('listenerView')">🎧 Listen Live</button>
+  </nav>
+
+  <div id="uploadView" class="view-card active-view">
+    <h2>FM Station Song Upload</h2>
+
+    <div class="active-stations-box">
+      <label style="margin:0; color:var(--primary-color);">🟢 Live Active Stations (Click to Select):</label>
+      <div id="uploadStationList" class="station-list">
+        <span class="no-stations">Searching for active players...</span>
+      </div>
+    </div>
+
+    <form id="uploadForm">
+      <div class="form-group">
+        <label for="audioFile">Select Music File (.mp3 - Max 7 MB)</label>
+        <input type="file" id="audioFile" accept=".mp3,audio/mpeg" required>
+        <div id="sizeError" class="error-text">File exceeds the 7 MB limit!</div>
+        <div id="metaSuccess" class="info-text">✨ Metadata extracted from MP3 file!</div>
+      </div>
+
+      <div class="form-group">
+        <label for="uploadStationCode">Target FM Station Code</label>
+        <input type="text" id="uploadStationCode" placeholder="e.g., FM-4829" required style="text-transform:uppercase;">
+      </div>
+
+      <div class="form-group">
+        <label for="trackName">Track Name</label>
+        <input type="text" id="trackName" placeholder="e.g., Bohemian Rhapsody" required>
+      </div>
+
+      <div class="form-group">
+        <label for="artistName">Artist</label>
+        <input type="text" id="artistName" placeholder="e.g., Queen" required>
+      </div>
+
+      <div class="form-group">
+        <label for="releaseDate">Release Date</label>
+        <input type="date" id="releaseDate" required>
+      </div>
+
+      <div class="form-group">
+        <label for="customMessage">Custom DJ Message (Optional)</label>
+        <textarea id="customMessage" placeholder="e.g., Shoutout to Sarah on her birthday!"></textarea>
+      </div>
+
+      <button type="submit" id="submitBtn" class="btn btn-primary">Send to FM Station</button>
+    </form>
+  </div>
+
+
+  <div id="playerView" class="view-card center-wrapper">
+    <h2>Transmitter Broadcast Player</h2>
+
+    <div class="form-group" style="text-align: center;">
+      <label for="playerStationCodeInput">YOUR STATION CODE:</label>
+      <input type="text" id="playerStationCodeInput" value="FM-4829" style="text-align:center; font-weight:bold; width:60%; margin: 0 auto; display:block; text-transform:uppercase;">
+    </div>
+
+    <button id="startBtn" class="btn btn-success" style="margin-bottom: 1.5rem;">Click to Start FM Broadcast</button>
+    
+    <div>
+      <div id="statusBadge" class="status-badge status-idle">IDLE / WAITING</div>
+    </div>
+    
+    <h1 id="playerTrackTitle">Initializing FM Station...</h1>
+    <div id="playerArtistTitle" class="subtitle">Waiting for input</div>
+
+    <audio id="audioPlayer" controls></audio>
+
+    <div id="ytContainer">
+      <iframe id="ytIframe" width="100%" height="200" src="" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+    </div>
+  </div>
+
+
+  <div id="listenerView" class="view-card center-wrapper">
+    <h2>Listen Live Sync</h2>
+
+    <div class="active-stations-box">
+      <label style="color:var(--primary-color); font-weight:bold; font-size:0.9rem;">🟢 Live On-Air Stations:</label>
+      <div id="listenerStationList" class="station-list">
+        <span class="no-stations">Checking active stations...</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <input type="text" id="listenerStationCodeInput" placeholder="Enter Station Code" style="text-align:center; text-transform:uppercase;">
+    </div>
+
+    <button id="tuneInBtn" class="btn btn-primary" style="margin-bottom: 1rem;">🎧 Tune In & Sync Broadcast</button>
+
+    <div>
+      <div id="listenerStatusBadge" class="status-badge status-playing" style="display:none;">LIVE BROADCAST</div>
+    </div>
+    
+    <h1 id="listenerTrackTitle">Not Connected</h1>
+    <div id="listenerArtistTitle" class="subtitle">Select a station to listen live</div>
+
+    <audio id="listenerAudioPlayer" controls></audio>
+  </div>
+
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref as dbRef, push, onValue, remove, set, onDisconnect, onChildAdded, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    // Firebase Config
+    const firebaseConfig = {
+      apiKey: "AIzaSyAA-hLT6bHPW_V90omC-oZK6Eseor3T-P4",
+      authDomain: "fm-project-2b133.firebaseapp.com",
+      projectId: "fm-project-2b133",
+      storageBucket: "fm-project-2b133.firebasestorage.app",
+      messagingSenderId: "106275362228",
+      appId: "1:106275362228:web:35adc9279aad60e15fcee1",
+      measurementId: "G-J5VJB1NGVS"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+
+    // --- Tab Switching Logic ---
+    window.switchTab = (tabId) => {
+      document.querySelectorAll('.view-card').forEach(card => card.classList.remove('active-view'));
+      document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+
+      document.getElementById(tabId).classList.add('active-view');
+      event.target.classList.add('active');
+    };
+
+    // --- Live Active Stations Renderer ---
+    function renderActiveStations(targetContainerId, targetInputId) {
+      const container = document.getElementById(targetContainerId);
+      const input = document.getElementById(targetInputId);
+
+      onValue(dbRef(database, 'active_stations'), (snapshot) => {
+        container.innerHTML = '';
+        const stations = snapshot.val();
+
+        if (!stations) {
+          container.innerHTML = '<span class="no-stations">No active stations right now.</span>';
+          return;
+        }
+
+        const now = Date.now();
+        let activeCount = 0;
+
+        Object.keys(stations).forEach(code => {
+          if (now - stations[code].lastSeen < 15000) {
+            activeCount++;
+            const chip = document.createElement('span');
+            chip.className = 'station-chip';
+            chip.textContent = code;
+            chip.onclick = () => { if (input) input.value = code; };
+            container.appendChild(chip);
+          }
+        });
+
+        if (activeCount === 0) {
+          container.innerHTML = '<span class="no-stations">No active stations right now.</span>';
+        }
+      });
+    }
+
+    renderActiveStations('uploadStationList', 'uploadStationCode');
+    renderActiveStations('listenerStationList', 'listenerStationCodeInput');
+
+
+    // ================= UPLOAD PAGE LOGIC =================
+    const uploadForm = document.getElementById('uploadForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const fileInput = document.getElementById('audioFile');
+    const sizeError = document.getElementById('sizeError');
+    const metaSuccess = document.getElementById('metaSuccess');
+    const uploadStationCode = document.getElementById('uploadStationCode');
+    const MAX_FILE_SIZE = 7 * 1024 * 1024;
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      metaSuccess.style.display = 'none';
+
+      if (!file) return;
+
+      if (file.size > MAX_FILE_SIZE) {
+        sizeError.style.display = 'block';
+        submitBtn.disabled = true;
+        return;
+      } else {
+        sizeError.style.display = 'none';
+        submitBtn.disabled = false;
+      }
+
+      // ID3 Tag Extraction
+      window.jsmediatags.read(file, {
+        onSuccess: (tag) => {
+          const tags = tag.tags;
+          let extracted = false;
+
+          if (tags.title) { document.getElementById('trackName').value = tags.title; extracted = true; }
+          if (tags.artist) { document.getElementById('artistName').value = tags.artist; extracted = true; }
+          if (tags.year) {
+            const yearStr = tags.year.toString().slice(0, 4);
+            document.getElementById('releaseDate').value = `${yearStr}-01-01`;
+            extracted = true;
+          }
+          if (extracted) metaSuccess.style.display = 'block';
+        }
+      });
+    });
+
+    const fileToBase64 = (file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (err) => reject(err);
+    });
+
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const file = fileInput.files[0];
+      const rawCode = uploadStationCode.value.trim().toUpperCase();
+
+      if (!file) return;
+
+      try {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Encoding MP3...";
+
+        const base64Audio = await fileToBase64(file);
+        submitBtn.textContent = `Sending to ${rawCode}...`;
+
+        const stationQueueRef = dbRef(database, `queues/${rawCode}`);
+        await push(stationQueueRef, {
+          trackName: document.getElementById('trackName').value,
+          artistName: document.getElementById('artistName').value,
+          releaseDate: document.getElementById('releaseDate').value,
+          customMessage: document.getElementById('customMessage').value.trim(),
+          audioData: base64Audio,
+          timestamp: serverTimestamp()
+        });
+
+        alert(`Song sent to station ${rawCode} successfully!`);
+        uploadForm.reset();
+        metaSuccess.style.display = 'none';
+      } catch (error) {
+        console.error("Upload error: ", error);
+        alert("Failed to upload song.");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Send to FM Station";
+      }
+    });
+
+
+    // ================= PLAYER PAGE LOGIC =================
+    const audioPlayer = document.getElementById('audioPlayer');
+    const playerTrackTitle = document.getElementById('playerTrackTitle');
+    const playerArtistTitle = document.getElementById('playerArtistTitle');
+    const statusBadge = document.getElementById('statusBadge');
+    const startBtn = document.getElementById('startBtn');
+    const playerStationInput = document.getElementById('playerStationCodeInput');
+    const ytContainer = document.getElementById('ytContainer');
+    const ytIframe = document.getElementById('ytIframe');
+
+    let trackQueue = [];
+    let isPlayingQueueTrack = false;
+    let currentStationCode = "";
+
+    const fallbackYoutubeTracks = [
+      'https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1&enablejsapi=1',
+      'https://www.youtube.com/embed/5qap5aO4i9A?autoplay=1&enablejsapi=1',
+      'https://www.youtube.com/embed/DWcJFNfaw9c?autoplay=1&enablejsapi=1'
+    ];
+
+    startBtn.addEventListener('click', () => {
+      currentStationCode = playerStationInput.value.trim().toUpperCase();
+      if (!currentStationCode) { alert("Please enter a station code!"); return; }
+
+      playerStationInput.disabled = true;
+      audioPlayer.play().then(() => audioPlayer.pause()).catch(() => {});
+
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.getVoices();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+      }
+
+      startBtn.style.display = 'none';
+      startStationHeartbeat(currentStationCode);
+      listenToStationQueue(currentStationCode);
+
+      if (trackQueue.length === 0) playRandomYouTubeTrack();
+    });
+
+    function startStationHeartbeat(code) {
+      const activeRef = dbRef(database, `active_stations/${code}`);
+      const liveRef = dbRef(database, `live_stations/${code}`);
+
+      onDisconnect(activeRef).remove();
+      onDisconnect(liveRef).remove();
+
+      const sendHeartbeat = () => { set(activeRef, { lastSeen: Date.now() }); };
+      sendHeartbeat();
+      setInterval(sendHeartbeat, 5000);
+    }
+
+    function getBestHumanVoice() {
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = ['Natural', 'Google', 'Enhanced', 'Neural', 'Samantha', 'Daniel', 'Karen', 'Guy'];
+      for (let k of preferred) {
+        const found = voices.find(v => v.name.includes(k) && v.lang.startsWith('en'));
+        if (found) return found;
+      }
+      return voices.find(v => v.lang.startsWith('en')) || voices[0];
+    }
+
+    function announceTrack(currentTrack) {
+      return new Promise((resolve) => {
+        if (!('speechSynthesis' in window)) { resolve(); return; }
+        window.speechSynthesis.cancel();
+
+        let text = currentTrack.customMessage && currentTrack.customMessage.length > 0
+          ? currentTrack.customMessage
+          : `Playing on ${currentStationCode} is ${currentTrack.trackName} by ${currentTrack.artistName}.`;
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        const voice = getBestHumanVoice();
+        if (voice) utterance.voice = voice;
+        utterance.rate = 0.92;
+
+        utterance.onend = () => resolve();
+        utterance.onerror = () => resolve();
+        window.speechSynthesis.speak(utterance);
+      });
+    }
+
+    function playRandomYouTubeTrack() {
+      const randomUrl = fallbackYoutubeTracks[Math.floor(Math.random() * fallbackYoutubeTracks.length)];
+      statusBadge.textContent = "BACKGROUND (YOUTUBE)";
+      statusBadge.className = "status-badge status-youtube";
+      playerTrackTitle.textContent = "YouTube Background Radio";
+      playerArtistTitle.textContent = "Automated Stream";
+
+      ytContainer.style.display = "block";
+      ytIframe.src = randomUrl;
+
+      set(dbRef(database, `live_stations/${currentStationCode}`), null);
+    }
+
+    function listenToStationQueue(code) {
+      onChildAdded(dbRef(database, `queues/${code}`), (snapshot) => {
+        trackQueue.push({ id: snapshot.key, ...snapshot.val() });
+        if (!isPlayingQueueTrack) processNextTrack();
+      });
+    }
+
+    async function processNextTrack() {
+      if (trackQueue.length === 0) {
+        isPlayingQueueTrack = false;
+        audioPlayer.src = "";
+        playRandomYouTubeTrack();
+        return;
+      }
+
+      isPlayingQueueTrack = true;
+      ytContainer.style.display = "none";
+      ytIframe.src = "";
+
+      const currentTrack = trackQueue.shift();
+
+      statusBadge.textContent = "ANNOUNCING";
+      statusBadge.className = "status-badge status-announcing";
+      playerTrackTitle.textContent = currentTrack.trackName;
+      playerArtistTitle.textContent = currentTrack.artistName;
+
+      remove(dbRef(database, `queues/${currentStationCode}/${currentTrack.id}`));
+
+      await announceTrack(currentTrack);
+
+      statusBadge.textContent = "ON AIR (USER TRACK)";
+      statusBadge.className = "status-badge status-playing";
+      audioPlayer.src = currentTrack.audioData;
+
+      set(dbRef(database, `live_stations/${currentStationCode}`), {
+        trackName: currentTrack.trackName,
+        artistName: currentTrack.artistName,
+        audioData: currentTrack.audioData,
+        playbackStartTime: Date.now()
+      });
+
+      audioPlayer.play().catch(err => console.warn("Autoplay error:", err));
+    }
+
+    audioPlayer.addEventListener('ended', processNextTrack);
+
+
+    // ================= LISTENER PAGE LOGIC =================
+    const listenerInput = document.getElementById('listenerStationCodeInput');
+    const tuneInBtn = document.getElementById('tuneInBtn');
+    const listenerTrackTitle = document.getElementById('listenerTrackTitle');
+    const listenerArtistTitle = document.getElementById('listenerArtistTitle');
+    const listenerStatusBadge = document.getElementById('listenerStatusBadge');
+    const listenerAudioPlayer = document.getElementById('listenerAudioPlayer');
+
+    let currentTrackAudio = null;
+
+    tuneInBtn.addEventListener('click', () => {
+      const code = listenerInput.value.trim().toUpperCase();
+      if (!code) { alert("Please select or enter a station code!"); return; }
+
+      listenerStatusBadge.style.display = "inline-block";
+      listenerStatusBadge.textContent = `TUNED TO ${code}`;
+
+      onValue(dbRef(database, `live_stations/${code}`), (snapshot) => {
+        const liveData = snapshot.val();
+        
+        if (!liveData || !liveData.audioData) {
+          listenerTrackTitle.textContent = "Station Offline / Between Tracks";
+          listenerArtistTitle.textContent = "Waiting for next broadcast...";
+          listenerAudioPlayer.src = "";
+          return;
+        }
+
+        listenerTrackTitle.textContent = liveData.trackName;
+        listenerArtistTitle.textContent = liveData.artistName;
+
+        if (currentTrackAudio !== liveData.audioData) {
+          currentTrackAudio = liveData.audioData;
+          listenerAudioPlayer.src = liveData.audioData;
+
+          const elapsedSeconds = Math.max(0, (Date.now() - liveData.playbackStartTime) / 1000);
+
+          listenerAudioPlayer.addEventListener('loadedmetadata', () => {
+            if (elapsedSeconds < listenerAudioPlayer.duration) {
+              listenerAudioPlayer.currentTime = elapsedSeconds;
+            }
+            listenerAudioPlayer.play().catch(err => console.warn("Autoplay blocked:", err));
+          }, { once: true });
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
