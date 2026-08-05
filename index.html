@@ -51,14 +51,8 @@
       transition: all 0.2s ease-in-out;
     }
 
-    .nav-btn:hover {
-      color: var(--text-color);
-    }
-
-    .nav-btn.active {
-      background: var(--primary-color);
-      color: var(--text-color);
-    }
+    .nav-btn:hover { color: var(--text-color); }
+    .nav-btn.active { background: var(--primary-color); color: var(--text-color); }
 
     /* Views Container */
     .view-card {
@@ -72,9 +66,7 @@
       box-sizing: border-box;
     }
 
-    .view-card.active-view {
-      display: block;
-    }
+    .view-card.active-view { display: block; }
 
     h2 { margin-top: 0; margin-bottom: 1rem; text-align: center; color: var(--text-color); }
     h1 { margin: 0 0 0.5rem 0; font-size: 1.5rem; text-align: center; }
@@ -98,6 +90,8 @@
     .btn-primary:hover { background-color: var(--primary-hover); }
     .btn-success { background-color: var(--success-color); }
     .btn-success:hover { background-color: #218838; }
+    .btn-warning { background-color: #ffc107; color: #000; }
+    .btn-warning:hover { background-color: #e0a800; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
 
     .error-text { color: #dc3545; font-size: 0.85rem; margin-top: 0.25rem; display: none; }
@@ -110,7 +104,7 @@
     }
     .status-playing { background: var(--success-color); }
     .status-announcing { background: #17a2b8; }
-    .status-youtube { background: #ff0000; }
+    .status-static { background: #6c757d; }
     .status-idle { background: #ffc107; color: #000; }
 
     .active-stations-box {
@@ -126,7 +120,6 @@
     .no-stations { color: var(--muted-text); font-size: 0.85rem; font-style: italic; }
 
     audio { width: 100%; margin-top: 1rem; }
-    #ytContainer { margin-top: 15px; border-radius: 8px; overflow: hidden; display: none; }
     .center-wrapper { text-align: center; }
   </style>
 </head>
@@ -203,11 +196,9 @@
     <h1 id="playerTrackTitle">Initializing FM Station...</h1>
     <div id="playerArtistTitle" class="subtitle">Waiting for input</div>
 
-    <audio id="audioPlayer"></audio>
+    <button id="skipBtn" class="btn btn-warning" style="display: none; margin-bottom: 1rem;">⏭️ Skip Current Track</button>
 
-    <div id="ytContainer">
-      <iframe id="ytIframe" width="100%" height="200" src="" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
-    </div>
+    <audio id="audioPlayer"></audio>
   </div>
 
 
@@ -244,7 +235,6 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref as dbRef, push, onValue, remove, set, onDisconnect, onChildAdded, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // Firebase Config
     const firebaseConfig = {
       apiKey: "AIzaSyAA-hLT6bHPW_V90omC-oZK6Eseor3T-P4",
       authDomain: "fm-project-2b133.firebaseapp.com",
@@ -258,7 +248,43 @@
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
 
-    // --- Tab Switching Logic ---
+    // --- Web Audio Static Noise Synthesizer ---
+    class RadioStatic {
+      constructor() {
+        this.ctx = null;
+        this.node = null;
+      }
+      start() {
+        if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        if (this.node) return;
+
+        const bufferSize = this.ctx.sampleRate * 2;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * 0.05;
+        }
+
+        this.node = this.ctx.createBufferSource();
+        this.node.buffer = buffer;
+        this.node.loop = true;
+        this.node.connect(this.ctx.destination);
+        this.node.start();
+      }
+      stop() {
+        if (this.node) {
+          try { this.node.stop(); } catch(e){}
+          this.node.disconnect();
+          this.node = null;
+        }
+      }
+    }
+
+    const broadcasterStatic = new RadioStatic();
+    const listenerStatic = new RadioStatic();
+
+    // --- Tab Switcher ---
     window.switchTab = (tabId) => {
       document.querySelectorAll('.view-card').forEach(card => card.classList.remove('active-view'));
       document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
@@ -267,7 +293,7 @@
       event.target.classList.add('active');
     };
 
-    // --- Live Active Stations Renderer ---
+    // --- Active Station List Renderer ---
     function renderActiveStations(targetContainerId, targetInputId) {
       const container = document.getElementById(targetContainerId);
       const input = document.getElementById(targetInputId);
@@ -275,7 +301,6 @@
       onValue(dbRef(database, 'active_stations'), (snapshot) => {
         container.innerHTML = '';
         const stations = snapshot.val();
-
         if (!stations) {
           container.innerHTML = '<span class="no-stations">No active stations right now.</span>';
           return;
@@ -323,7 +348,6 @@
       if (file.size > MAX_FILE_SIZE) {
         sizeError.style.display = 'block';
         submitBtn.disabled = true;
-        return;
       } else {
         sizeError.style.display = 'none';
         submitBtn.disabled = false;
@@ -357,7 +381,6 @@
       e.preventDefault();
       const file = fileInput.files[0];
       const rawCode = uploadStationCode.value.trim().toUpperCase();
-
       if (!file) return;
 
       try {
@@ -367,8 +390,7 @@
         const base64Audio = await fileToBase64(file);
         submitBtn.textContent = `Sending to ${rawCode}...`;
 
-        const stationQueueRef = dbRef(database, `queues/${rawCode}`);
-        await push(stationQueueRef, {
+        await push(dbRef(database, `queues/${rawCode}`), {
           trackName: document.getElementById('trackName').value,
           artistName: document.getElementById('artistName').value,
           releaseDate: document.getElementById('releaseDate').value,
@@ -390,30 +412,24 @@
     });
 
 
-    // ================= PLAYER PAGE LOGIC =================
+    // ================= BROADCASTER PLAYER LOGIC =================
     const audioPlayer = document.getElementById('audioPlayer');
     const playerTrackTitle = document.getElementById('playerTrackTitle');
     const playerArtistTitle = document.getElementById('playerArtistTitle');
     const statusBadge = document.getElementById('statusBadge');
     const startBtn = document.getElementById('startBtn');
+    const skipBtn = document.getElementById('skipBtn');
     const playerStationInput = document.getElementById('playerStationCodeInput');
-    const ytContainer = document.getElementById('ytContainer');
-    const ytIframe = document.getElementById('ytIframe');
 
     let trackQueue = [];
     let isPlayingQueueTrack = false;
+    let isSkipping = false;
     let currentStationCode = "";
 
-    const fallbackYoutubeTracks = [
-      'https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1&enablejsapi=1',
-      'https://www.youtube.com/embed/5qap5aO4i9A?autoplay=1&enablejsapi=1',
-      'https://www.youtube.com/embed/DWcJFNfaw9c?autoplay=1&enablejsapi=1'
-    ];
-
-    // Prevent broadcaster from pausing playback
+    // Lock pause behavior on broadcaster unless actively skipping
     audioPlayer.addEventListener('pause', () => {
-      if (isPlayingQueueTrack && audioPlayer.src) {
-        audioPlayer.play().catch(err => console.warn("Pause prevent override:", err));
+      if (isPlayingQueueTrack && audioPlayer.src && !isSkipping) {
+        audioPlayer.play().catch(err => console.warn("Broadcaster forced play:", err));
       }
     });
 
@@ -430,10 +446,23 @@
       }
 
       startBtn.style.display = 'none';
+      skipBtn.style.display = 'block';
+
       startStationHeartbeat(currentStationCode);
       listenToStationQueue(currentStationCode);
 
-      if (trackQueue.length === 0) playRandomYouTubeTrack();
+      if (trackQueue.length === 0) playStaticRadio();
+    });
+
+    // Skip track action
+    skipBtn.addEventListener('click', () => {
+      isSkipping = true;
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      audioPlayer.pause();
+      audioPlayer.src = "";
+      processNextTrack();
     });
 
     function startStationHeartbeat(code) {
@@ -460,12 +489,20 @@
 
     function announceTrack(currentTrack) {
       return new Promise((resolve) => {
-        if (!('speechSynthesis' in window)) { resolve(); return; }
-        window.speechSynthesis.cancel();
-
         let text = currentTrack.customMessage && currentTrack.customMessage.length > 0
           ? currentTrack.customMessage
           : `Playing on ${currentStationCode} is ${currentTrack.trackName} by ${currentTrack.artistName}.`;
+
+        set(dbRef(database, `live_stations/${currentStationCode}`), {
+          state: 'ANNOUNCING',
+          speechText: text,
+          trackName: currentTrack.trackName,
+          artistName: currentTrack.artistName,
+          startTime: Date.now()
+        });
+
+        if (!('speechSynthesis' in window)) { resolve(); return; }
+        window.speechSynthesis.cancel();
 
         const utterance = new SpeechSynthesisUtterance(text);
         const voice = getBestHumanVoice();
@@ -478,17 +515,19 @@
       });
     }
 
-    function playRandomYouTubeTrack() {
-      const randomUrl = fallbackYoutubeTracks[Math.floor(Math.random() * fallbackYoutubeTracks.length)];
-      statusBadge.textContent = "BACKGROUND (YOUTUBE)";
-      statusBadge.className = "status-badge status-youtube";
-      playerTrackTitle.textContent = "YouTube Background Radio";
-      playerArtistTitle.textContent = "Automated Stream";
+    function playStaticRadio() {
+      statusBadge.textContent = "STATIC (NO FREQUENCY)";
+      statusBadge.className = "status-badge status-static";
+      playerTrackTitle.textContent = "Static Noise";
+      playerArtistTitle.textContent = "Frequency Tuning...";
 
-      ytContainer.style.display = "block";
-      ytIframe.src = randomUrl;
+      broadcasterStatic.start();
 
-      set(dbRef(database, `live_stations/${currentStationCode}`), null);
+      set(dbRef(database, `live_stations/${currentStationCode}`), {
+        state: 'STATIC',
+        trackName: 'Static Noise',
+        artistName: 'Frequency Tuning...'
+      });
     }
 
     function listenToStationQueue(code) {
@@ -499,16 +538,17 @@
     }
 
     async function processNextTrack() {
+      isSkipping = false;
+
       if (trackQueue.length === 0) {
         isPlayingQueueTrack = false;
         audioPlayer.src = "";
-        playRandomYouTubeTrack();
+        playStaticRadio();
         return;
       }
 
       isPlayingQueueTrack = true;
-      ytContainer.style.display = "none";
-      ytIframe.src = "";
+      broadcasterStatic.stop();
 
       const currentTrack = trackQueue.shift();
 
@@ -521,11 +561,14 @@
 
       await announceTrack(currentTrack);
 
+      if (isSkipping) return; // Abort audio playback if skip was clicked during TTS announcement
+
       statusBadge.textContent = "ON AIR (USER TRACK)";
       statusBadge.className = "status-badge status-playing";
       audioPlayer.src = currentTrack.audioData;
 
       set(dbRef(database, `live_stations/${currentStationCode}`), {
+        state: 'PLAYING',
         trackName: currentTrack.trackName,
         artistName: currentTrack.artistName,
         audioData: currentTrack.audioData,
@@ -538,7 +581,7 @@
     audioPlayer.addEventListener('ended', processNextTrack);
 
 
-    // ================= LISTENER PAGE LOGIC =================
+    // ================= LIVE LISTENER SYNC LOGIC =================
     const listenerInput = document.getElementById('listenerStationCodeInput');
     const tuneInBtn = document.getElementById('tuneInBtn');
     const listenerTrackTitle = document.getElementById('listenerTrackTitle');
@@ -548,8 +591,8 @@
 
     let currentTrackAudio = null;
     let currentLiveTimestamp = null;
+    let currentAnnouncementText = null;
 
-    // Resync when listener clicks play after pausing
     listenerAudioPlayer.addEventListener('play', () => {
       if (currentLiveTimestamp && listenerAudioPlayer.duration) {
         const elapsedSeconds = Math.max(0, (Date.now() - currentLiveTimestamp) / 1000);
@@ -558,6 +601,16 @@
         }
       }
     });
+
+    function speakListenerAnnouncement(text) {
+      if (!('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voice = getBestHumanVoice();
+      if (voice) utterance.voice = voice;
+      utterance.rate = 0.92;
+      window.speechSynthesis.speak(utterance);
+    }
 
     tuneInBtn.addEventListener('click', () => {
       const code = listenerInput.value.trim().toUpperCase();
@@ -569,30 +622,68 @@
       onValue(dbRef(database, `live_stations/${code}`), (snapshot) => {
         const liveData = snapshot.val();
         
-        if (!liveData || !liveData.audioData) {
-          listenerTrackTitle.textContent = "Station Offline / Between Tracks";
-          listenerArtistTitle.textContent = "Waiting for next broadcast...";
+        if (!liveData) {
+          listenerTrackTitle.textContent = "Station Offline";
+          listenerArtistTitle.textContent = "Waiting for transmitter...";
           listenerAudioPlayer.src = "";
-          currentLiveTimestamp = null;
+          listenerStatic.stop();
+          if ('speechSynthesis' in window) window.speechSynthesis.cancel();
           return;
         }
 
-        listenerTrackTitle.textContent = liveData.trackName;
-        listenerArtistTitle.textContent = liveData.artistName;
-        currentLiveTimestamp = liveData.playbackStartTime;
+        // STATIC
+        if (liveData.state === 'STATIC') {
+          if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+          listenerAudioPlayer.pause();
+          listenerAudioPlayer.src = "";
+          listenerTrackTitle.textContent = liveData.trackName;
+          listenerArtistTitle.textContent = liveData.artistName;
+          listenerStatusBadge.className = "status-badge status-static";
+          listenerStatusBadge.textContent = "STATIC NOISE";
+          listenerStatic.start();
+          currentTrackAudio = null;
+        }
 
-        if (currentTrackAudio !== liveData.audioData) {
-          currentTrackAudio = liveData.audioData;
-          listenerAudioPlayer.src = liveData.audioData;
+        // ANNOUNCING
+        else if (liveData.state === 'ANNOUNCING') {
+          listenerAudioPlayer.pause();
+          listenerAudioPlayer.src = "";
+          listenerStatic.stop();
+          listenerTrackTitle.textContent = liveData.trackName;
+          listenerArtistTitle.textContent = liveData.artistName;
+          listenerStatusBadge.className = "status-badge status-announcing";
+          listenerStatusBadge.textContent = "LIVE DJ ANNOUNCEMENT";
 
-          const elapsedSeconds = Math.max(0, (Date.now() - liveData.playbackStartTime) / 1000);
+          if (currentAnnouncementText !== liveData.speechText) {
+            currentAnnouncementText = liveData.speechText;
+            speakListenerAnnouncement(liveData.speechText);
+          }
+        }
 
-          listenerAudioPlayer.addEventListener('loadedmetadata', () => {
-            if (elapsedSeconds < listenerAudioPlayer.duration) {
-              listenerAudioPlayer.currentTime = elapsedSeconds;
-            }
-            listenerAudioPlayer.play().catch(err => console.warn("Autoplay blocked:", err));
-          }, { once: true });
+        // PLAYING
+        else if (liveData.state === 'PLAYING') {
+          if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+          listenerStatic.stop();
+          listenerTrackTitle.textContent = liveData.trackName;
+          listenerArtistTitle.textContent = liveData.artistName;
+          listenerStatusBadge.className = "status-badge status-playing";
+          listenerStatusBadge.textContent = "LIVE BROADCAST";
+          currentLiveTimestamp = liveData.playbackStartTime;
+          currentAnnouncementText = null;
+
+          if (currentTrackAudio !== liveData.audioData) {
+            currentTrackAudio = liveData.audioData;
+            listenerAudioPlayer.src = liveData.audioData;
+
+            const elapsedSeconds = Math.max(0, (Date.now() - liveData.playbackStartTime) / 1000);
+
+            listenerAudioPlayer.addEventListener('loadedmetadata', () => {
+              if (elapsedSeconds < listenerAudioPlayer.duration) {
+                listenerAudioPlayer.currentTime = elapsedSeconds;
+              }
+              listenerAudioPlayer.play().catch(err => console.warn("Autoplay blocked:", err));
+            }, { once: true });
+          }
         }
       });
     });
