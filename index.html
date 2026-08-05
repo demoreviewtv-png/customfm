@@ -75,12 +75,12 @@
     /* Form Elements */
     .form-group { margin-bottom: 1.25rem; text-align: left; }
     label { display: block; margin-bottom: 0.5rem; font-weight: 600; color: #ddd; font-size: 0.9rem; }
-    input[type="text"], input[type="date"], input[type="file"], textarea {
+    input[type="text"], input[type="date"], input[type="file"], select, textarea {
       width: 100%; padding: 0.75rem; border: 1px solid #444; border-radius: 6px; box-sizing: border-box; font-size: 0.95rem;
       background: #121216; color: #fff; font-family: inherit;
     }
     textarea { resize: vertical; height: 70px; }
-    input:focus, textarea:focus { outline: none; border-color: var(--primary-color); }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary-color); }
 
     .btn {
       width: 100%; padding: 0.75rem; color: white; border: none; border-radius: 6px;
@@ -96,6 +96,17 @@
 
     .error-text { color: #dc3545; font-size: 0.85rem; margin-top: 0.25rem; display: none; }
     .info-text { color: var(--success-color); font-size: 0.85rem; margin-top: 0.25rem; display: none; }
+
+    /* Visualizer Canvas */
+    .visualizer-canvas {
+      width: 100%;
+      height: 140px;
+      background-color: #121216;
+      border-radius: 8px;
+      border: 1px solid #333;
+      margin-top: 1rem;
+      display: block;
+    }
 
     /* Badges & Active Stations */
     .status-badge {
@@ -187,6 +198,16 @@
       <input type="text" id="playerStationCodeInput" value="FM-4829" style="text-align:center; font-weight:bold; width:60%; margin: 0 auto; display:block; text-transform:uppercase;">
     </div>
 
+    <div class="form-group" style="text-align: left; margin-bottom: 1rem;">
+      <label for="visualizerModeSelect">🎛️ Audio Spectrum Visualizer Style:</label>
+      <select id="visualizerModeSelect">
+        <option value="bars">Classic Frequency Bars</option>
+        <option value="waveform">Oscilloscope Waveform</option>
+        <option value="radial">Radial Circle Spectrum</option>
+        <option value="off">Disabled</option>
+      </select>
+    </div>
+
     <button id="startBtn" class="btn btn-success" style="margin-bottom: 1.5rem;">Click to Start FM Broadcast</button>
     
     <div>
@@ -196,9 +217,11 @@
     <h1 id="playerTrackTitle">Initializing FM Station...</h1>
     <div id="playerArtistTitle" class="subtitle">Waiting for input</div>
 
-    <button id="skipBtn" class="btn btn-warning" style="display: none; margin-bottom: 1rem;">⏭️ Skip Current Track</button>
+    <canvas id="playerVisualizer" class="visualizer-canvas" width="400" height="140"></canvas>
 
-    <audio id="audioPlayer"></audio>
+    <button id="skipBtn" class="btn btn-warning" style="display: none; margin-top: 1rem;">⏭️ Skip Current Track</button>
+
+    <audio id="audioPlayer" crossorigin="anonymous"></audio>
   </div>
 
 
@@ -225,7 +248,9 @@
     <h1 id="listenerTrackTitle">Not Connected</h1>
     <div id="listenerArtistTitle" class="subtitle">Select a station to listen live</div>
 
-    <audio id="listenerAudioPlayer" controls></audio>
+    <canvas id="listenerVisualizer" class="visualizer-canvas" width="400" height="140"></canvas>
+
+    <audio id="listenerAudioPlayer" controls crossorigin="anonymous"></audio>
   </div>
 
 
@@ -233,7 +258,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getDatabase, ref as dbRef, push, onValue, remove, set, onDisconnect, onChildAdded, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+    import { getDatabase, ref as dbRef, push, onValue, remove, set, onDisconnect, onChildAdded, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAA-hLT6bHPW_V90omC-oZK6Eseor3T-P4",
@@ -248,7 +273,121 @@
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
 
-    // --- Web Audio Static Noise Synthesizer ---
+    // --- Dynamic Audio Visualizer Engine ---
+    class AudioVisualizerEngine {
+      constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+        this.analyser = null;
+        this.audioCtx = null;
+        this.sourceNode = null;
+        this.mode = 'bars';
+        this.animId = null;
+      }
+
+      attachToAudioElement(audioElement) {
+        if (this.sourceNode) return;
+        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        this.analyser = this.audioCtx.createAnalyser();
+        this.analyser.fftSize = 256;
+        
+        try {
+          this.sourceNode = this.audioCtx.createMediaElementSource(audioElement);
+          this.sourceNode.connect(this.analyser);
+          this.analyser.connect(this.audioCtx.destination);
+        } catch(e) { console.warn("Audio Context init note:", e); }
+        
+        this.startLoop();
+      }
+
+      setMode(mode) {
+        this.mode = mode;
+      }
+
+      startLoop() {
+        if (this.animId) cancelAnimationFrame(this.animId);
+        
+        const render = () => {
+          this.animId = requestAnimationFrame(render);
+          this.draw();
+        };
+        render();
+      }
+
+      draw() {
+        const width = this.canvas.width;
+        const height = this.canvas.height;
+        this.ctx.clearRect(0, 0, width, height);
+
+        if (this.mode === 'off' || !this.analyser) return;
+
+        if (this.audioCtx && this.audioCtx.state === 'suspended') {
+          this.audioCtx.resume();
+        }
+
+        const bufferLength = this.analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        if (this.mode === 'bars') {
+          this.analyser.getByteFrequencyData(dataArray);
+          const barWidth = (width / bufferLength) * 2.5;
+          let x = 0;
+
+          for (let i = 0; i < bufferLength; i++) {
+            const barHeight = (dataArray[i] / 255) * height;
+            const hue = (i / bufferLength) * 280;
+            this.ctx.fillStyle = `hsl(${hue}, 80%, 50%)`;
+            this.ctx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
+            x += barWidth;
+          }
+        } else if (this.mode === 'waveform') {
+          this.analyser.getByteTimeDomainData(dataArray);
+          this.ctx.lineWidth = 2;
+          this.ctx.strokeStyle = '#007bff';
+          this.ctx.beginPath();
+
+          const sliceWidth = width * 1.0 / bufferLength;
+          let x = 0;
+
+          for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 128.0;
+            const y = v * (height / 2);
+            if (i === 0) this.ctx.moveTo(x, y);
+            else this.ctx.lineTo(x, y);
+            x += sliceWidth;
+          }
+          this.ctx.lineTo(width, height / 2);
+          this.ctx.stroke();
+        } else if (this.mode === 'radial') {
+          this.analyser.getByteFrequencyData(dataArray);
+          const centerX = width / 2;
+          const centerY = height / 2;
+          const radius = 30;
+
+          for (let i = 0; i < bufferLength; i++) {
+            const barHeight = (dataArray[i] / 255) * 45;
+            const rad = (i * 2 * Math.PI) / bufferLength;
+            const x1 = centerX + Math.cos(rad) * radius;
+            const y1 = centerY + Math.sin(rad) * radius;
+            const x2 = centerX + Math.cos(rad) * (radius + barHeight);
+            const y2 = centerY + Math.sin(rad) * (radius + barHeight);
+
+            const hue = (i / bufferLength) * 360;
+            this.ctx.strokeStyle = `hsl(${hue}, 90%, 60%)`;
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+            this.ctx.moveTo(x1, y1);
+            this.ctx.lineTo(x2, y2);
+            this.ctx.stroke();
+          }
+        }
+      }
+    }
+
+    const broadcasterVisualizer = new AudioVisualizerEngine('playerVisualizer');
+    const listenerVisualizer = new AudioVisualizerEngine('listenerVisualizer');
+
+    // --- Web Audio Static Generator ---
     class RadioStatic {
       constructor() {
         this.ctx = null;
@@ -420,11 +559,23 @@
     const startBtn = document.getElementById('startBtn');
     const skipBtn = document.getElementById('skipBtn');
     const playerStationInput = document.getElementById('playerStationCodeInput');
+    const visualizerModeSelect = document.getElementById('visualizerModeSelect');
 
     let trackQueue = [];
     let isPlayingQueueTrack = false;
     let isSkipping = false;
     let currentStationCode = "";
+
+    // Visualizer selection listener
+    visualizerModeSelect.addEventListener('change', (e) => {
+      const selectedMode = e.target.value;
+      broadcasterVisualizer.setMode(selectedMode);
+      if (currentStationCode) {
+        update(dbRef(database, `live_stations/${currentStationCode}`), {
+          visualizerMode: selectedMode
+        });
+      }
+    });
 
     // Lock pause behavior on broadcaster unless actively skipping
     audioPlayer.addEventListener('pause', () => {
@@ -438,6 +589,8 @@
       if (!currentStationCode) { alert("Please enter a station code!"); return; }
 
       playerStationInput.disabled = true;
+      broadcasterVisualizer.attachToAudioElement(audioPlayer);
+
       audioPlayer.play().then(() => audioPlayer.pause()).catch(() => {});
 
       if ('speechSynthesis' in window) {
@@ -498,6 +651,7 @@
           speechText: text,
           trackName: currentTrack.trackName,
           artistName: currentTrack.artistName,
+          visualizerMode: visualizerModeSelect.value,
           startTime: Date.now()
         });
 
@@ -526,7 +680,8 @@
       set(dbRef(database, `live_stations/${currentStationCode}`), {
         state: 'STATIC',
         trackName: 'Static Noise',
-        artistName: 'Frequency Tuning...'
+        artistName: 'Frequency Tuning...',
+        visualizerMode: visualizerModeSelect.value
       });
     }
 
@@ -561,7 +716,7 @@
 
       await announceTrack(currentTrack);
 
-      if (isSkipping) return; // Abort audio playback if skip was clicked during TTS announcement
+      if (isSkipping) return;
 
       statusBadge.textContent = "ON AIR (USER TRACK)";
       statusBadge.className = "status-badge status-playing";
@@ -572,6 +727,7 @@
         trackName: currentTrack.trackName,
         artistName: currentTrack.artistName,
         audioData: currentTrack.audioData,
+        visualizerMode: visualizerModeSelect.value,
         playbackStartTime: Date.now()
       });
 
@@ -594,6 +750,8 @@
     let currentAnnouncementText = null;
 
     listenerAudioPlayer.addEventListener('play', () => {
+      listenerVisualizer.attachToAudioElement(listenerAudioPlayer);
+
       if (currentLiveTimestamp && listenerAudioPlayer.duration) {
         const elapsedSeconds = Math.max(0, (Date.now() - currentLiveTimestamp) / 1000);
         if (elapsedSeconds < listenerAudioPlayer.duration) {
@@ -629,6 +787,11 @@
           listenerStatic.stop();
           if ('speechSynthesis' in window) window.speechSynthesis.cancel();
           return;
+        }
+
+        // Synchronize visualizer mode chosen by broadcaster
+        if (liveData.visualizerMode) {
+          listenerVisualizer.setMode(liveData.visualizerMode);
         }
 
         // STATIC
