@@ -11,6 +11,8 @@
       --primary-color: #007bff;
       --primary-hover: #0056b3;
       --success-color: #28a745;
+      --danger-color: #dc3545;
+      --danger-hover: #bd2130;
       --text-color: #ffffff;
       --muted-text: #aaaaaa;
     }
@@ -110,6 +112,8 @@
     .btn-success:hover { background-color: #218838; }
     .btn-warning { background-color: #ffc107; color: #000; }
     .btn-warning:hover { background-color: #e0a800; }
+    .btn-danger { background-color: var(--danger-color); }
+    .btn-danger:hover { background-color: var(--danger-hover); }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
 
     .error-text { color: #dc3545; font-size: 0.85rem; margin-top: 0.25rem; display: none; }
@@ -172,10 +176,10 @@
 
     <form id="uploadForm">
       <div class="form-group">
-        <label for="audioFile">Select Music File (.mp3 - Max 7 MB)</label>
-        <input type="file" id="audioFile" accept=".mp3,audio/mpeg" required>
+        <label for="audioFile">Select Audio File (.mp3, .m4a, .aac, .wav - Max 7 MB)</label>
+        <input type="file" id="audioFile" accept=".mp3,.m4a,.aac,.wav,.ogg,audio/*" required>
         <div id="sizeError" class="error-text">File exceeds the 7 MB limit!</div>
-        <div id="metaSuccess" class="info-text">✨ Metadata extracted from MP3 file!</div>
+        <div id="metaSuccess" class="info-text">✨ Metadata extracted from Audio file!</div>
       </div>
 
       <div class="form-group">
@@ -222,6 +226,9 @@
         <option value="bars">Classic Frequency Bars</option>
         <option value="waveform">Oscilloscope Waveform</option>
         <option value="radial">Radial Circle Spectrum</option>
+        <option value="pulse">Neon Pulse Ring</option>
+        <option value="particles">Floating Particles</option>
+        <option value="heatmap">Frequency Heatmap</option>
         <option value="off">Disabled</option>
       </select>
     </div>
@@ -262,7 +269,8 @@
       <input type="text" id="listenerStationCodeInput" placeholder="Enter Station Code" style="text-align:center; text-transform:uppercase;">
     </div>
 
-    <button id="tuneInBtn" class="btn btn-primary" style="margin-bottom: 1rem;">🎧 Tune In & Sync Broadcast</button>
+    <button id="tuneInBtn" class="btn btn-primary" style="margin-bottom: 0.5rem;">🎧 Tune In & Sync Broadcast</button>
+    <button id="stopConnectionBtn" class="btn btn-danger" style="margin-bottom: 1rem; display: none;">🛑 Disconnect / Stop Connection</button>
 
     <div class="volume-container">
       <label for="listenerVolume">🔊 Volume</label>
@@ -311,6 +319,7 @@
         this.sourceNode = null;
         this.mode = 'bars';
         this.animId = null;
+        this.particles = [];
       }
 
       attachToAudioElement(audioElement) {
@@ -325,7 +334,20 @@
           this.analyser.connect(this.audioCtx.destination);
         } catch(e) { console.warn("Audio Context init note:", e); }
         
+        this.initParticles();
         this.startLoop();
+      }
+
+      initParticles() {
+        this.particles = [];
+        for (let i = 0; i < 40; i++) {
+          this.particles.push({
+            x: Math.random() * this.canvas.width,
+            y: Math.random() * this.canvas.height,
+            radius: Math.random() * 3 + 1,
+            speedY: Math.random() * 1.5 + 0.5
+          });
+        }
       }
 
       setMode(mode) {
@@ -356,6 +378,7 @@
         const bufferLength = this.analyser.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
 
+        // 1. CLASSIC BARS
         if (this.mode === 'bars') {
           this.analyser.getByteFrequencyData(dataArray);
           const barWidth = (width / bufferLength) * 2.5;
@@ -368,7 +391,9 @@
             this.ctx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
             x += barWidth;
           }
-        } else if (this.mode === 'waveform') {
+        } 
+        // 2. OSCILLOSCOPE WAVEFORM
+        else if (this.mode === 'waveform') {
           this.analyser.getByteTimeDomainData(dataArray);
           this.ctx.lineWidth = 2;
           this.ctx.strokeStyle = '#007bff';
@@ -386,14 +411,16 @@
           }
           this.ctx.lineTo(width, height / 2);
           this.ctx.stroke();
-        } else if (this.mode === 'radial') {
+        } 
+        // 3. RADIAL SPECTRUM
+        else if (this.mode === 'radial') {
           this.analyser.getByteFrequencyData(dataArray);
           const centerX = width / 2;
           const centerY = height / 2;
-          const radius = 30;
+          const radius = 25;
 
           for (let i = 0; i < bufferLength; i++) {
-            const barHeight = (dataArray[i] / 255) * 45;
+            const barHeight = (dataArray[i] / 255) * 40;
             const rad = (i * 2 * Math.PI) / bufferLength;
             const x1 = centerX + Math.cos(rad) * radius;
             const y1 = centerY + Math.sin(rad) * radius;
@@ -407,6 +434,66 @@
             this.ctx.moveTo(x1, y1);
             this.ctx.lineTo(x2, y2);
             this.ctx.stroke();
+          }
+        }
+        // 4. NEON PULSE RING
+        else if (this.mode === 'pulse') {
+          this.analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+          const avg = sum / bufferLength;
+
+          const centerX = width / 2;
+          const centerY = height / 2;
+          const radius = 20 + (avg / 255) * 45;
+
+          this.ctx.beginPath();
+          this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+          this.ctx.strokeStyle = `hsl(${(avg * 3) % 360}, 100%, 50%)`;
+          this.ctx.lineWidth = 6;
+          this.ctx.shadowBlur = 15;
+          this.ctx.shadowColor = `hsl(${(avg * 3) % 360}, 100%, 50%)`;
+          this.ctx.stroke();
+          this.ctx.shadowBlur = 0; // Reset
+        }
+        // 5. FLOATING PARTICLES
+        else if (this.mode === 'particles') {
+          this.analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+          const energy = sum / bufferLength;
+
+          this.particles.forEach((p, idx) => {
+            p.y -= p.speedY * (1 + energy / 50);
+            if (p.y < 0) p.y = height;
+
+            this.ctx.beginPath();
+            this.ctx.arc(p.x, p.y, p.radius + (energy / 50), 0, Math.PI * 2);
+            this.ctx.fillStyle = `hsl(${(idx * 10 + energy * 2) % 360}, 90%, 60%)`;
+            this.ctx.fill();
+          });
+        }
+        // 6. FREQUENCY HEATMAP
+        else if (this.mode === 'heatmap') {
+          this.analyser.getByteFrequencyData(dataArray);
+          const cols = 16;
+          const rows = 8;
+          const cellW = width / cols;
+          const cellH = height / rows;
+
+          for (let c = 0; c < cols; c++) {
+            const freqVal = dataArray[c * 2] || 0;
+            const activeRows = Math.floor((freqVal / 255) * rows);
+
+            for (let r = 0; r < rows; r++) {
+              if (rows - r <= activeRows) {
+                const hue = (r / rows) * 120; // Red to green
+                this.ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+              } else {
+                this.ctx.fillStyle = `#1a1a22`;
+              }
+              this.ctx.fillRect(c * cellW + 1, r * cellH + 1, cellW - 2, cellH - 2);
+            }
           }
         }
       }
@@ -563,7 +650,7 @@
 
       try {
         submitBtn.disabled = true;
-        submitBtn.textContent = "Encoding MP3...";
+        submitBtn.textContent = "Encoding Audio File...";
 
         const base64Audio = await fileToBase64(file);
         submitBtn.textContent = `Sending to ${rawCode}...`;
@@ -789,6 +876,7 @@
     // ================= LIVE LISTENER SYNC LOGIC =================
     const listenerInput = document.getElementById('listenerStationCodeInput');
     const tuneInBtn = document.getElementById('tuneInBtn');
+    const stopConnectionBtn = document.getElementById('stopConnectionBtn');
     const listenerTrackTitle = document.getElementById('listenerTrackTitle');
     const listenerArtistTitle = document.getElementById('listenerArtistTitle');
     const listenerStatusBadge = document.getElementById('listenerStatusBadge');
@@ -799,6 +887,7 @@
     let currentLiveTimestamp = null;
     let currentAnnouncementText = null;
     let isListenerConnected = false;
+    let activeDbListener = null;
 
     // Volume adjustment for listener
     listenerVolume.addEventListener('input', (e) => {
@@ -836,15 +925,42 @@
       window.speechSynthesis.speak(utterance);
     }
 
+    // Stop / Disconnect Functionality
+    stopConnectionBtn.addEventListener('click', () => {
+      isListenerConnected = false;
+      
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      
+      listenerAudioPlayer.pause();
+      listenerAudioPlayer.src = "";
+      listenerStatic.stop();
+
+      listenerStatusBadge.style.display = "none";
+      stopConnectionBtn.style.display = "none";
+      tuneInBtn.style.display = "block";
+
+      listenerTrackTitle.textContent = "Not Connected";
+      listenerArtistTitle.textContent = "Select a station to listen live";
+      
+      currentTrackAudio = null;
+      currentLiveTimestamp = null;
+      currentAnnouncementText = null;
+    });
+
     tuneInBtn.addEventListener('click', () => {
       const code = listenerInput.value.trim().toUpperCase();
       if (!code) { alert("Please select or enter a station code!"); return; }
 
       isListenerConnected = true;
+      tuneInBtn.style.display = "none";
+      stopConnectionBtn.style.display = "block";
+      
       listenerStatusBadge.style.display = "inline-block";
       listenerStatusBadge.textContent = `TUNED TO ${code}`;
 
       onValue(dbRef(database, `live_stations/${code}`), (snapshot) => {
+        if (!isListenerConnected) return; // Prevent updates if stopped
+        
         const liveData = snapshot.val();
         
         if (!liveData) {
