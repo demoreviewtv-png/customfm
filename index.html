@@ -234,7 +234,7 @@
     </div>
 
     <div class="form-group" style="text-align: left; margin-bottom: 0.75rem;">
-      <label for="visualizerModeSelect">🎛️ Audio Spectrum Visualizer (100 Styles):</label>
+      <label for="visualizerModeSelect">🎛️ Audio Spectrum Visualizer (100 Dynamic Styles):</label>
       <select id="visualizerModeSelect"></select>
     </div>
 
@@ -244,8 +244,8 @@
     </div>
 
     <div class="form-group" style="text-align: left; margin-bottom: 1rem;">
-      <label for="ttsOverrideInput">🗣️ <strong>Override For TTS</strong> (Overrides all user DJ messages):</label>
-      <input type="text" id="ttsOverrideInput" placeholder="e.g., Welcome back! Broadcasting live target station...">
+      <label for="ttsOverrideInput">🗣️ <strong>Override For TTS</strong> (Overrides all user messages):</label>
+      <input type="text" id="ttsOverrideInput" placeholder="e.g., Radio Station FM-4829 Broadcasting Live...">
     </div>
 
     <div class="volume-container">
@@ -324,24 +324,20 @@
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
 
-    // --- Generate 100 Visualizer Options ---
+    // --- Generate Dropdown for 100 Visualizer Options ---
     const visualizerSelect = document.getElementById('visualizerModeSelect');
-    const visualizerNames = [
-      "Classic Frequency Bars", "Oscilloscope Waveform", "Radial Circle Spectrum", 
-      "Neon Pulse Ring", "Floating Particles", "Frequency Heatmap", "Laser Beams", 
-      "Matrix Rain", "Vortex Tunnel", "DNA Strand", "Galaxy Orbit", "Digital Barcode"
+    const visualizerFamilies = [
+      "Bar Spectrum", "Waveform & Oscilloscope", "Radial & Sunburst", 
+      "Particle System", "Matrix & Grid", "3D Tunnel", "Morphing Polygon", 
+      "DNA Strand & Ribbon", "Laser & Searchlight", "Kaleidoscope Mirror"
     ];
 
     for (let i = 1; i <= 100; i++) {
       const opt = document.createElement('option');
       opt.value = `mode_${i}`;
-      if (i <= visualizerNames.length) {
-        opt.textContent = `${i}. ${visualizerNames[i-1]}`;
-      } else {
-        const categories = ["Bars", "Wave", "Radial", "Particle", "Pulse", "Matrix", "3D Meter", "Grid"];
-        const cat = categories[(i - 1) % categories.length];
-        opt.textContent = `${i}. Spectrum Preset #${i} (${cat})`;
-      }
+      const familyIdx = Math.floor((i - 1) / 10);
+      const subIdx = ((i - 1) % 10) + 1;
+      opt.textContent = `${i}. Preset #${i} - ${visualizerFamilies[familyIdx]} Var. ${subIdx}`;
       visualizerSelect.appendChild(opt);
     }
     const offOpt = document.createElement('option');
@@ -349,7 +345,7 @@
     offOpt.textContent = 'Disabled / Off';
     visualizerSelect.appendChild(offOpt);
 
-    // --- Advanced 100-Mode Visualizer Engine ---
+    // --- Advanced 100 Dynamic Visualizer Engine ---
     class AudioVisualizerEngine {
       constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -381,12 +377,13 @@
 
       initParticles() {
         this.particles = [];
-        for (let i = 0; i < 50; i++) {
+        for (let i = 0; i < 60; i++) {
           this.particles.push({
             x: Math.random() * this.canvas.width,
             y: Math.random() * this.canvas.height,
-            radius: Math.random() * 3 + 1,
-            speedY: Math.random() * 1.5 + 0.5
+            vx: (Math.random() - 0.5) * 2,
+            vy: (Math.random() - 0.5) * 2,
+            radius: Math.random() * 3 + 1
           });
         }
       }
@@ -399,7 +396,7 @@
         if (this.animId) cancelAnimationFrame(this.animId);
         
         const render = () => {
-          this.time += 0.05;
+          this.time += 0.04;
           this.animId = requestAnimationFrame(render);
           this.draw();
         };
@@ -421,59 +418,90 @@
         const dataArray = new Uint8Array(bufferLength);
         this.analyser.getByteFrequencyData(dataArray);
 
-        // Parse Mode Index (1 to 100)
         let modeIdx = 1;
         if (this.mode.startsWith('mode_')) {
           modeIdx = parseInt(this.mode.replace('mode_', ''), 10);
         }
 
-        // --- Core Algorithm Multiplexer mapped to 100 styles ---
-        if (modeIdx === 1 || (modeIdx > 12 && modeIdx % 8 === 1)) {
-          // Classic / Variant Bars
-          const barWidth = (width / bufferLength) * 2.5;
+        let totalEnergy = 0;
+        for (let i = 0; i < bufferLength; i++) totalEnergy += dataArray[i];
+        const avgEnergy = totalEnergy / bufferLength;
+
+        // --- FAMILY 1: FREQUENCY BARS (Modes 1 - 10) ---
+        if (modeIdx >= 1 && modeIdx <= 10) {
+          const barWidth = (width / bufferLength) * 2.2;
           let x = 0;
           for (let i = 0; i < bufferLength; i++) {
-            const barHeight = (dataArray[i] / 255) * height;
-            const hue = (i / bufferLength * 280 + modeIdx * 10 + this.time * 20) % 360;
-            this.ctx.fillStyle = `hsl(${hue}, 80%, 50%)`;
-            this.ctx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
+            const val = dataArray[i] / 255;
+            const barHeight = val * height;
+            const hue = (i * 5 + modeIdx * 25 + this.time * 20) % 360;
+
+            this.ctx.fillStyle = `hsl(${hue}, 85%, 55%)`;
+
+            if (modeIdx % 3 === 1) {
+              this.ctx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
+            } else if (modeIdx % 3 === 2) {
+              const halfH = barHeight / 2;
+              this.ctx.fillRect(x, (height / 2) - halfH, barWidth - 1, barHeight);
+            } else {
+              this.ctx.fillRect(x, height - barHeight, barWidth - 1, 4);
+              this.ctx.fillRect(x, height - barHeight + 8, barWidth - 1, barHeight - 8);
+            }
             x += barWidth;
           }
-        } 
-        else if (modeIdx === 2 || (modeIdx > 12 && modeIdx % 8 === 2)) {
-          // Waveform Oscilloscope Variations
+        }
+
+        // --- FAMILY 2: WAVEFORMS & LISSAJOUS (Modes 11 - 20) ---
+        else if (modeIdx >= 11 && modeIdx <= 20) {
           const timeData = new Uint8Array(bufferLength);
           this.analyser.getByteTimeDomainData(timeData);
-          this.ctx.lineWidth = (modeIdx % 4) + 1;
-          this.ctx.strokeStyle = `hsl(${(modeIdx * 35 + this.time * 30) % 360}, 100%, 50%)`;
+
+          this.ctx.lineWidth = (modeIdx % 4) + 1.5;
+          this.ctx.strokeStyle = `hsl(${(modeIdx * 30 + this.time * 40) % 360}, 100%, 60%)`;
           this.ctx.beginPath();
-          const sliceWidth = width * 1.0 / bufferLength;
-          let x = 0;
-          for (let i = 0; i < bufferLength; i++) {
-            const v = timeData[i] / 128.0;
-            const y = v * (height / 2);
-            if (i === 0) this.ctx.moveTo(x, y);
-            else this.ctx.lineTo(x, y);
-            x += sliceWidth;
+
+          if (modeIdx <= 15) {
+            const sliceWidth = width / bufferLength;
+            let x = 0;
+            for (let i = 0; i < bufferLength; i++) {
+              const v = timeData[i] / 128.0;
+              const y = (v * height) / 2 + Math.sin(i * 0.1 + this.time) * (modeIdx % 10);
+              if (i === 0) this.ctx.moveTo(x, y);
+              else this.ctx.lineTo(x, y);
+              x += sliceWidth;
+            }
+          } else {
+            const centerX = width / 2;
+            const centerY = height / 2;
+            for (let i = 0; i < bufferLength; i++) {
+              const v = (timeData[i] - 128) / 128;
+              const angle = i * 0.1;
+              const radius = (height / 3) * (1 + v);
+              const x = centerX + Math.cos(angle * (modeIdx % 5 + 1)) * radius;
+              const y = centerY + Math.sin(angle * 2 + this.time) * radius;
+              if (i === 0) this.ctx.moveTo(x, y);
+              else this.ctx.lineTo(x, y);
+            }
           }
-          this.ctx.lineTo(width, height / 2);
           this.ctx.stroke();
-        } 
-        else if (modeIdx === 3 || (modeIdx > 12 && modeIdx % 8 === 3)) {
-          // Radial Circle Spectrum Variations
+        }
+
+        // --- FAMILY 3: RADIAL & SUNBURST (Modes 21 - 30) ---
+        else if (modeIdx >= 21 && modeIdx <= 30) {
           const centerX = width / 2;
           const centerY = height / 2;
-          const radius = 20 + (modeIdx % 15);
-          for (let i = 0; i < bufferLength; i++) {
-            const barHeight = (dataArray[i] / 255) * (40 + (modeIdx % 20));
-            const rad = (i * 2 * Math.PI) / bufferLength + this.time * 0.2;
-            const x1 = centerX + Math.cos(rad) * radius;
-            const y1 = centerY + Math.sin(rad) * radius;
-            const x2 = centerX + Math.cos(rad) * (radius + barHeight);
-            const y2 = centerY + Math.sin(rad) * (radius + barHeight);
+          const baseRadius = 20 + (modeIdx % 10) * 3;
 
-            const hue = (i / bufferLength * 360 + modeIdx * 15) % 360;
-            this.ctx.strokeStyle = `hsl(${hue}, 90%, 60%)`;
+          for (let i = 0; i < bufferLength; i++) {
+            const amp = (dataArray[i] / 255) * (45 + (modeIdx % 15));
+            const rad = (i * 2 * Math.PI) / bufferLength + (modeIdx % 2 === 0 ? this.time * 0.3 : -this.time * 0.3);
+
+            const x1 = centerX + Math.cos(rad) * baseRadius;
+            const y1 = centerY + Math.sin(rad) * baseRadius;
+            const x2 = centerX + Math.cos(rad) * (baseRadius + amp);
+            const y2 = centerY + Math.sin(rad) * (baseRadius + amp);
+
+            this.ctx.strokeStyle = `hsl(${(i * 8 + modeIdx * 20) % 360}, 90%, 60%)`;
             this.ctx.lineWidth = 2;
             this.ctx.beginPath();
             this.ctx.moveTo(x1, y1);
@@ -481,88 +509,162 @@
             this.ctx.stroke();
           }
         }
-        else if (modeIdx === 4 || (modeIdx > 12 && modeIdx % 8 === 4)) {
-          // Neon Pulse Ring
-          let sum = 0;
-          for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
-          const avg = sum / bufferLength;
-          const centerX = width / 2;
-          const centerY = height / 2;
-          const radius = 15 + (avg / 255) * (50 + (modeIdx % 20));
 
-          this.ctx.beginPath();
-          this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-          const hue = (avg * 3 + modeIdx * 25) % 360;
-          this.ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`;
-          this.ctx.lineWidth = 4 + (modeIdx % 4);
-          this.ctx.shadowBlur = 15;
-          this.ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
-          this.ctx.stroke();
-          this.ctx.shadowBlur = 0;
-        }
-        else if (modeIdx === 5 || (modeIdx > 12 && modeIdx % 8 === 5)) {
-          // Floating Particles
-          let sum = 0;
-          for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
-          const energy = sum / bufferLength;
-
+        // --- FAMILY 4: DYNAMIC PARTICLES & FIREWORKS (Modes 31 - 40) ---
+        else if (modeIdx >= 31 && modeIdx <= 40) {
+          const gravity = (modeIdx % 2 === 0) ? -1 : 1;
           this.particles.forEach((p, idx) => {
-            p.y -= p.speedY * (1 + energy / 40);
-            if (p.y < 0) p.y = height;
+            const freqVal = dataArray[idx % bufferLength] / 255;
+            p.x += p.vx * (1 + freqVal * 3);
+            p.y += p.vy * (1 + freqVal * 3) * gravity;
+
+            if (p.x < 0 || p.x > width) p.vx *= -1;
+            if (p.y < 0 || p.y > height) p.vy *= -1;
+
+            const pRadius = p.radius + freqVal * (8 + (modeIdx % 5));
             this.ctx.beginPath();
-            this.ctx.arc(p.x, p.y, p.radius + (energy / 40), 0, Math.PI * 2);
-            this.ctx.fillStyle = `hsl(${(idx * 12 + energy * 2 + modeIdx * 10) % 360}, 90%, 60%)`;
+            this.ctx.arc(p.x, p.y, pRadius, 0, Math.PI * 2);
+            this.ctx.fillStyle = `hsl(${(idx * 15 + modeIdx * 10 + this.time * 30) % 360}, 95%, 60%)`;
             this.ctx.fill();
           });
         }
-        else if (modeIdx === 6 || (modeIdx > 12 && modeIdx % 8 === 6)) {
-          // Frequency Heatmap / Matrix Grid
-          const cols = 16 + (modeIdx % 8);
-          const rows = 8;
+
+        // --- FAMILY 5: MATRIX & DOT GRIDS (Modes 41 - 50) ---
+        else if (modeIdx >= 41 && modeIdx <= 50) {
+          const cols = 16;
+          const rows = 10;
           const cellW = width / cols;
           const cellH = height / rows;
 
           for (let c = 0; c < cols; c++) {
-            const freqVal = dataArray[c * 2] || 0;
-            const activeRows = Math.floor((freqVal / 255) * rows);
+            const freqVal = dataArray[c * 3] || 0;
+            const activeCount = Math.floor((freqVal / 255) * rows);
+
             for (let r = 0; r < rows; r++) {
-              if (rows - r <= activeRows) {
-                const hue = (r / rows) * 120 + modeIdx * 5;
+              const isActive = (rows - r) <= activeCount;
+              const hue = (r / rows * 120 + modeIdx * 20) % 360;
+
+              if (isActive) {
                 this.ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
-              } else {
-                this.ctx.fillStyle = `#181820`;
+                if (modeIdx % 2 === 0) {
+                  this.ctx.beginPath();
+                  this.ctx.arc(c * cellW + cellW / 2, r * cellH + cellH / 2, cellH / 3, 0, Math.PI * 2);
+                  this.ctx.fill();
+                } else {
+                  this.ctx.fillRect(c * cellW + 2, r * cellH + 2, cellW - 4, cellH - 4);
+                }
               }
-              this.ctx.fillRect(c * cellW + 1, r * cellH + 1, cellW - 2, cellH - 2);
             }
           }
         }
-        else if (modeIdx === 7 || (modeIdx > 12 && modeIdx % 8 === 7)) {
-          // Laser Beams
-          for (let i = 0; i < bufferLength; i += 4) {
-            const beamLen = (dataArray[i] / 255) * height;
-            const x = (i / bufferLength) * width;
+
+        // --- FAMILY 6: 3D PERSPECTIVE TUNNEL (Modes 51 - 60) ---
+        else if (modeIdx >= 51 && modeIdx <= 60) {
+          const centerX = width / 2;
+          const centerY = height / 2;
+          const rings = 8;
+
+          for (let r = 1; r <= rings; r++) {
+            const freqIdx = Math.floor((r / rings) * bufferLength);
+            const amp = (dataArray[freqIdx] / 255);
+            const radius = (r / rings) * (height / 2) + amp * 15;
+
             this.ctx.beginPath();
-            this.ctx.moveTo(width / 2, 0);
-            this.ctx.lineTo(x, beamLen);
-            this.ctx.strokeStyle = `hsl(${(i * 5 + modeIdx * 20) % 360}, 100%, 50%)`;
-            this.ctx.lineWidth = 1.5;
+            this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            this.ctx.lineWidth = 1 + amp * 4;
+            this.ctx.strokeStyle = `hsl(${(r * 30 + modeIdx * 15 + this.time * 40) % 360}, 100%, 50%)`;
             this.ctx.stroke();
           }
         }
-        else {
-          // DNA / Galaxy / Vortex / 3D Parametric fallback modes for 8..100
+
+        // --- FAMILY 7: POLYGONAL GEOMETRY (Modes 61 - 70) ---
+        else if (modeIdx >= 61 && modeIdx <= 70) {
+          const sides = (modeIdx % 6) + 3;
           const centerX = width / 2;
           const centerY = height / 2;
+          const radius = 25 + (avgEnergy / 255) * 40;
+
           this.ctx.beginPath();
-          for (let i = 0; i < bufferLength; i += 2) {
-            const angle = i * 0.15 + this.time;
-            const amp = (dataArray[i] / 255) * 50;
-            const x = centerX + Math.cos(angle) * (i * 1.5 + amp);
-            const y = centerY + Math.sin(angle * 1.2) * (amp + (modeIdx % 30));
-            
-            this.ctx.fillStyle = `hsl(${(i * 10 + modeIdx * 12 + this.time * 50) % 360}, 90%, 60%)`;
-            this.ctx.fillRect(x - 2, y - 2, 4 + (amp / 10), 4 + (amp / 10));
+          for (let i = 0; i < sides; i++) {
+            const angle = (i * 2 * Math.PI) / sides + this.time;
+            const freqVal = (dataArray[i * 4] / 255) * 20;
+            const r = radius + freqVal;
+            const x = centerX + Math.cos(angle) * r;
+            const y = centerY + Math.sin(angle) * r;
+            if (i === 0) this.ctx.moveTo(x, y);
+            else this.ctx.lineTo(x, y);
           }
+          this.ctx.closePath();
+          this.ctx.strokeStyle = `hsl(${(modeIdx * 33 + this.time * 50) % 360}, 100%, 55%)`;
+          this.ctx.lineWidth = 4;
+          this.ctx.stroke();
+        }
+
+        // --- FAMILY 8: DNA STRANDS & RIBBONS (Modes 71 - 80) ---
+        else if (modeIdx >= 71 && modeIdx <= 80) {
+          const centerY = height / 2;
+          const points = 30;
+          const step = width / points;
+
+          for (let strand = 0; strand < 2; strand++) {
+            this.ctx.beginPath();
+            this.ctx.lineWidth = 3;
+            const offset = strand * Math.PI;
+
+            for (let i = 0; i < points; i++) {
+              const freqVal = (dataArray[i * 2] / 255) * 35;
+              const x = i * step;
+              const y = centerY + Math.sin(i * 0.3 + this.time * 2 + offset) * (20 + freqVal);
+
+              if (i === 0) this.ctx.moveTo(x, y);
+              else this.ctx.lineTo(x, y);
+            }
+            this.ctx.strokeStyle = `hsl(${(strand * 180 + modeIdx * 20 + this.time * 30) % 360}, 90%, 60%)`;
+            this.ctx.stroke();
+          }
+        }
+
+        // --- FAMILY 9: LASER & BEAM CANNONS (Modes 81 - 90) ---
+        else if (modeIdx >= 81 && modeIdx <= 90) {
+          const beamCount = 12;
+          for (let i = 0; i < beamCount; i++) {
+            const val = dataArray[i * 5] / 255;
+            const angle = ((i / beamCount) * Math.PI) - (Math.PI / 2);
+            const length = val * (height * 1.2);
+
+            const startX = width / 2;
+            const startY = height;
+            const endX = startX + Math.sin(angle + Math.sin(this.time)) * length;
+            const endY = startY - Math.cos(angle + Math.sin(this.time)) * length;
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(startX, startY);
+            this.ctx.lineTo(endX, endY);
+            this.ctx.strokeStyle = `hsl(${(i * 25 + modeIdx * 12 + this.time * 40) % 360}, 100%, 50%)`;
+            this.ctx.lineWidth = 2 + val * 3;
+            this.ctx.stroke();
+          }
+        }
+
+        // --- FAMILY 10: KALEIDOSCOPE & ROTATIONAL MIRRORS (Modes 91 - 100) ---
+        else {
+          const centerX = width / 2;
+          const centerY = height / 2;
+          const mirrors = (modeIdx % 4) * 2 + 4;
+
+          this.ctx.save();
+          this.ctx.translate(centerX, centerY);
+
+          for (let m = 0; m < mirrors; m++) {
+            this.ctx.rotate((2 * Math.PI) / mirrors);
+            for (let i = 0; i < bufferLength / 4; i += 2) {
+              const val = (dataArray[i] / 255) * 30;
+              const hue = (i * 12 + modeIdx * 10 + this.time * 30) % 360;
+              this.ctx.fillStyle = `hsl(${hue}, 90%, 55%)`;
+              this.ctx.fillRect(i * 3, Math.sin(this.time + i) * 10, val / 2, val);
+            }
+          }
+          this.ctx.restore();
         }
       }
     }
@@ -781,7 +883,7 @@
       }
     });
 
-    // Lock pause behavior on broadcaster unless actively skipping
+    // Pause lock for broadcaster
     audioPlayer.addEventListener('pause', () => {
       if (isPlayingQueueTrack && audioPlayer.src && !isSkipping) {
         audioPlayer.play().catch(err => console.warn("Broadcaster forced play:", err));
@@ -811,7 +913,6 @@
       if (trackQueue.length === 0) playStaticRadio();
     });
 
-    // Skip track action
     skipBtn.addEventListener('click', () => {
       isSkipping = true;
       if ('speechSynthesis' in window) {
@@ -846,7 +947,7 @@
 
     function announceTrack(currentTrack) {
       return new Promise((resolve) => {
-        // Check "No TTS" Toggle
+        // Handle "No TTS" Toggle
         if (noTtsToggle.checked) {
           set(dbRef(database, `live_stations/${currentStationCode}`), {
             state: 'ANNOUNCING',
@@ -860,7 +961,7 @@
           return;
         }
 
-        // Determine Speech Text (Override Input > Custom Message > Default Speech)
+        // Speech override logic (Override Text Input > User Custom Message > Default DJ speech)
         const globalOverride = ttsOverrideInput.value.trim();
         let text = "";
 
@@ -987,7 +1088,7 @@
       listenerStatic.setVolume(vol);
     });
 
-    // Pause lock for listener: force live play continuously when tuned in
+    // Pause lock for listener
     listenerAudioPlayer.addEventListener('pause', () => {
       if (isListenerConnected && listenerAudioPlayer.src) {
         listenerAudioPlayer.play().catch(err => console.warn("Listener lock resume:", err));
@@ -1016,7 +1117,7 @@
       window.speechSynthesis.speak(utterance);
     }
 
-    // Stop / Disconnect Functionality
+    // Disconnect / Stop Connection Handler
     stopConnectionBtn.addEventListener('click', () => {
       isListenerConnected = false;
       
@@ -1063,7 +1164,6 @@
           return;
         }
 
-        // Synchronize visualizer mode chosen by broadcaster
         if (liveData.visualizerMode) {
           listenerVisualizer.setMode(liveData.visualizerMode);
         }
