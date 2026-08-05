@@ -82,6 +82,24 @@
     textarea { resize: vertical; height: 70px; }
     input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary-color); }
 
+    /* Volume Control Styling */
+    .volume-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 1rem 0;
+      background: #121216;
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      border: 1px solid #333;
+    }
+    .volume-container label { margin: 0; font-size: 0.85rem; }
+    .volume-slider {
+      flex-grow: 1;
+      accent-color: var(--primary-color);
+      cursor: pointer;
+    }
+
     .btn {
       width: 100%; padding: 0.75rem; color: white; border: none; border-radius: 6px;
       font-size: 1rem; font-weight: bold; cursor: pointer; transition: background 0.2s;
@@ -208,6 +226,11 @@
       </select>
     </div>
 
+    <div class="volume-container">
+      <label for="broadcasterVolume">🔊 Volume</label>
+      <input type="range" id="broadcasterVolume" class="volume-slider" min="0" max="1" step="0.01" value="1">
+    </div>
+
     <button id="startBtn" class="btn btn-success" style="margin-bottom: 1.5rem;">Click to Start FM Broadcast</button>
     
     <div>
@@ -241,6 +264,11 @@
 
     <button id="tuneInBtn" class="btn btn-primary" style="margin-bottom: 1rem;">🎧 Tune In & Sync Broadcast</button>
 
+    <div class="volume-container">
+      <label for="listenerVolume">🔊 Volume</label>
+      <input type="range" id="listenerVolume" class="volume-slider" min="0" max="1" step="0.01" value="1">
+    </div>
+
     <div>
       <div id="listenerStatusBadge" class="status-badge status-playing" style="display:none;">LIVE BROADCAST</div>
     </div>
@@ -250,7 +278,7 @@
 
     <canvas id="listenerVisualizer" class="visualizer-canvas" width="400" height="140"></canvas>
 
-    <audio id="listenerAudioPlayer" controls crossorigin="anonymous"></audio>
+    <audio id="listenerAudioPlayer" crossorigin="anonymous"></audio>
   </div>
 
 
@@ -392,8 +420,9 @@
       constructor() {
         this.ctx = null;
         this.node = null;
+        this.gainNode = null;
       }
-      start() {
+      start(volume = 1) {
         if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
         if (this.ctx.state === 'suspended') this.ctx.resume();
         if (this.node) return;
@@ -408,8 +437,18 @@
         this.node = this.ctx.createBufferSource();
         this.node.buffer = buffer;
         this.node.loop = true;
-        this.node.connect(this.ctx.destination);
+
+        this.gainNode = this.ctx.createGain();
+        this.gainNode.gain.value = volume;
+
+        this.node.connect(this.gainNode);
+        this.gainNode.connect(this.ctx.destination);
         this.node.start();
+      }
+      setVolume(vol) {
+        if (this.gainNode) {
+          this.gainNode.gain.value = vol;
+        }
       }
       stop() {
         if (this.node) {
@@ -560,11 +599,19 @@
     const skipBtn = document.getElementById('skipBtn');
     const playerStationInput = document.getElementById('playerStationCodeInput');
     const visualizerModeSelect = document.getElementById('visualizerModeSelect');
+    const broadcasterVolume = document.getElementById('broadcasterVolume');
 
     let trackQueue = [];
     let isPlayingQueueTrack = false;
     let isSkipping = false;
     let currentStationCode = "";
+
+    // Volume adjustment for broadcaster
+    broadcasterVolume.addEventListener('input', (e) => {
+      const vol = parseFloat(e.target.value);
+      audioPlayer.volume = vol;
+      broadcasterStatic.setVolume(vol);
+    });
 
     // Visualizer selection listener
     visualizerModeSelect.addEventListener('change', (e) => {
@@ -662,6 +709,7 @@
         const voice = getBestHumanVoice();
         if (voice) utterance.voice = voice;
         utterance.rate = 0.92;
+        utterance.volume = parseFloat(broadcasterVolume.value);
 
         utterance.onend = () => resolve();
         utterance.onerror = () => resolve();
@@ -675,7 +723,7 @@
       playerTrackTitle.textContent = "Static Noise";
       playerArtistTitle.textContent = "Frequency Tuning...";
 
-      broadcasterStatic.start();
+      broadcasterStatic.start(parseFloat(broadcasterVolume.value));
 
       set(dbRef(database, `live_stations/${currentStationCode}`), {
         state: 'STATIC',
@@ -721,6 +769,7 @@
       statusBadge.textContent = "ON AIR (USER TRACK)";
       statusBadge.className = "status-badge status-playing";
       audioPlayer.src = currentTrack.audioData;
+      audioPlayer.volume = parseFloat(broadcasterVolume.value);
 
       set(dbRef(database, `live_stations/${currentStationCode}`), {
         state: 'PLAYING',
@@ -744,10 +793,26 @@
     const listenerArtistTitle = document.getElementById('listenerArtistTitle');
     const listenerStatusBadge = document.getElementById('listenerStatusBadge');
     const listenerAudioPlayer = document.getElementById('listenerAudioPlayer');
+    const listenerVolume = document.getElementById('listenerVolume');
 
     let currentTrackAudio = null;
     let currentLiveTimestamp = null;
     let currentAnnouncementText = null;
+    let isListenerConnected = false;
+
+    // Volume adjustment for listener
+    listenerVolume.addEventListener('input', (e) => {
+      const vol = parseFloat(e.target.value);
+      listenerAudioPlayer.volume = vol;
+      listenerStatic.setVolume(vol);
+    });
+
+    // Pause lock for listener: force live play continuously when tuned in
+    listenerAudioPlayer.addEventListener('pause', () => {
+      if (isListenerConnected && listenerAudioPlayer.src) {
+        listenerAudioPlayer.play().catch(err => console.warn("Listener lock resume:", err));
+      }
+    });
 
     listenerAudioPlayer.addEventListener('play', () => {
       listenerVisualizer.attachToAudioElement(listenerAudioPlayer);
@@ -767,6 +832,7 @@
       const voice = getBestHumanVoice();
       if (voice) utterance.voice = voice;
       utterance.rate = 0.92;
+      utterance.volume = parseFloat(listenerVolume.value);
       window.speechSynthesis.speak(utterance);
     }
 
@@ -774,6 +840,7 @@
       const code = listenerInput.value.trim().toUpperCase();
       if (!code) { alert("Please select or enter a station code!"); return; }
 
+      isListenerConnected = true;
       listenerStatusBadge.style.display = "inline-block";
       listenerStatusBadge.textContent = `TUNED TO ${code}`;
 
@@ -797,19 +864,17 @@
         // STATIC
         if (liveData.state === 'STATIC') {
           if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-          listenerAudioPlayer.pause();
           listenerAudioPlayer.src = "";
           listenerTrackTitle.textContent = liveData.trackName;
           listenerArtistTitle.textContent = liveData.artistName;
           listenerStatusBadge.className = "status-badge status-static";
           listenerStatusBadge.textContent = "STATIC NOISE";
-          listenerStatic.start();
+          listenerStatic.start(parseFloat(listenerVolume.value));
           currentTrackAudio = null;
         }
 
         // ANNOUNCING
         else if (liveData.state === 'ANNOUNCING') {
-          listenerAudioPlayer.pause();
           listenerAudioPlayer.src = "";
           listenerStatic.stop();
           listenerTrackTitle.textContent = liveData.trackName;
@@ -837,6 +902,7 @@
           if (currentTrackAudio !== liveData.audioData) {
             currentTrackAudio = liveData.audioData;
             listenerAudioPlayer.src = liveData.audioData;
+            listenerAudioPlayer.volume = parseFloat(listenerVolume.value);
 
             const elapsedSeconds = Math.max(0, (Date.now() - liveData.playbackStartTime) / 1000);
 
