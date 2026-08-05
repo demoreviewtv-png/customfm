@@ -64,7 +64,7 @@
       border-radius: 12px;
       box-shadow: 0 8px 20px rgba(0,0,0,0.5);
       width: 100%;
-      max-width: 440px;
+      max-width: 460px;
       box-sizing: border-box;
     }
 
@@ -83,6 +83,19 @@
     }
     textarea { resize: vertical; height: 70px; }
     input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary-color); }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0.75rem 0;
+      background: #121216;
+      padding: 0.6rem 0.8rem;
+      border-radius: 6px;
+      border: 1px solid #333;
+    }
+    .checkbox-group input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+    .checkbox-group label { margin: 0; cursor: pointer; font-size: 0.85rem; }
 
     /* Volume Control Styling */
     .volume-container {
@@ -220,17 +233,19 @@
       <input type="text" id="playerStationCodeInput" value="FM-4829" style="text-align:center; font-weight:bold; width:60%; margin: 0 auto; display:block; text-transform:uppercase;">
     </div>
 
+    <div class="form-group" style="text-align: left; margin-bottom: 0.75rem;">
+      <label for="visualizerModeSelect">🎛️ Audio Spectrum Visualizer (100 Styles):</label>
+      <select id="visualizerModeSelect"></select>
+    </div>
+
+    <div class="checkbox-group">
+      <input type="checkbox" id="noTtsToggle">
+      <label for="noTtsToggle">🚫 <strong>No TTS</strong> (Disable Voice Announcements)</label>
+    </div>
+
     <div class="form-group" style="text-align: left; margin-bottom: 1rem;">
-      <label for="visualizerModeSelect">🎛️ Audio Spectrum Visualizer Style:</label>
-      <select id="visualizerModeSelect">
-        <option value="bars">Classic Frequency Bars</option>
-        <option value="waveform">Oscilloscope Waveform</option>
-        <option value="radial">Radial Circle Spectrum</option>
-        <option value="pulse">Neon Pulse Ring</option>
-        <option value="particles">Floating Particles</option>
-        <option value="heatmap">Frequency Heatmap</option>
-        <option value="off">Disabled</option>
-      </select>
+      <label for="ttsOverrideInput">🗣️ <strong>Override For TTS</strong> (Overrides all user DJ messages):</label>
+      <input type="text" id="ttsOverrideInput" placeholder="e.g., Welcome back! Broadcasting live target station...">
     </div>
 
     <div class="volume-container">
@@ -270,7 +285,7 @@
     </div>
 
     <button id="tuneInBtn" class="btn btn-primary" style="margin-bottom: 0.5rem;">🎧 Tune In & Sync Broadcast</button>
-    <button id="stopConnectionBtn" class="btn btn-danger" style="margin-bottom: 1rem; display: none;">🛑 Disconnect / Stop Connection</button>
+    <button id="stopConnectionBtn" class="btn btn-danger" style="margin-bottom: 1rem; display: none;">🛑 Stop Connection / Disconnect</button>
 
     <div class="volume-container">
       <label for="listenerVolume">🔊 Volume</label>
@@ -309,7 +324,32 @@
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
 
-    // --- Dynamic Audio Visualizer Engine ---
+    // --- Generate 100 Visualizer Options ---
+    const visualizerSelect = document.getElementById('visualizerModeSelect');
+    const visualizerNames = [
+      "Classic Frequency Bars", "Oscilloscope Waveform", "Radial Circle Spectrum", 
+      "Neon Pulse Ring", "Floating Particles", "Frequency Heatmap", "Laser Beams", 
+      "Matrix Rain", "Vortex Tunnel", "DNA Strand", "Galaxy Orbit", "Digital Barcode"
+    ];
+
+    for (let i = 1; i <= 100; i++) {
+      const opt = document.createElement('option');
+      opt.value = `mode_${i}`;
+      if (i <= visualizerNames.length) {
+        opt.textContent = `${i}. ${visualizerNames[i-1]}`;
+      } else {
+        const categories = ["Bars", "Wave", "Radial", "Particle", "Pulse", "Matrix", "3D Meter", "Grid"];
+        const cat = categories[(i - 1) % categories.length];
+        opt.textContent = `${i}. Spectrum Preset #${i} (${cat})`;
+      }
+      visualizerSelect.appendChild(opt);
+    }
+    const offOpt = document.createElement('option');
+    offOpt.value = 'off';
+    offOpt.textContent = 'Disabled / Off';
+    visualizerSelect.appendChild(offOpt);
+
+    // --- Advanced 100-Mode Visualizer Engine ---
     class AudioVisualizerEngine {
       constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -317,9 +357,10 @@
         this.analyser = null;
         this.audioCtx = null;
         this.sourceNode = null;
-        this.mode = 'bars';
+        this.mode = 'mode_1';
         this.animId = null;
         this.particles = [];
+        this.time = 0;
       }
 
       attachToAudioElement(audioElement) {
@@ -340,7 +381,7 @@
 
       initParticles() {
         this.particles = [];
-        for (let i = 0; i < 40; i++) {
+        for (let i = 0; i < 50; i++) {
           this.particles.push({
             x: Math.random() * this.canvas.width,
             y: Math.random() * this.canvas.height,
@@ -358,6 +399,7 @@
         if (this.animId) cancelAnimationFrame(this.animId);
         
         const render = () => {
+          this.time += 0.05;
           this.animId = requestAnimationFrame(render);
           this.draw();
         };
@@ -377,33 +419,38 @@
 
         const bufferLength = this.analyser.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
+        this.analyser.getByteFrequencyData(dataArray);
 
-        // 1. CLASSIC BARS
-        if (this.mode === 'bars') {
-          this.analyser.getByteFrequencyData(dataArray);
+        // Parse Mode Index (1 to 100)
+        let modeIdx = 1;
+        if (this.mode.startsWith('mode_')) {
+          modeIdx = parseInt(this.mode.replace('mode_', ''), 10);
+        }
+
+        // --- Core Algorithm Multiplexer mapped to 100 styles ---
+        if (modeIdx === 1 || (modeIdx > 12 && modeIdx % 8 === 1)) {
+          // Classic / Variant Bars
           const barWidth = (width / bufferLength) * 2.5;
           let x = 0;
-
           for (let i = 0; i < bufferLength; i++) {
             const barHeight = (dataArray[i] / 255) * height;
-            const hue = (i / bufferLength) * 280;
+            const hue = (i / bufferLength * 280 + modeIdx * 10 + this.time * 20) % 360;
             this.ctx.fillStyle = `hsl(${hue}, 80%, 50%)`;
             this.ctx.fillRect(x, height - barHeight, barWidth - 1, barHeight);
             x += barWidth;
           }
         } 
-        // 2. OSCILLOSCOPE WAVEFORM
-        else if (this.mode === 'waveform') {
-          this.analyser.getByteTimeDomainData(dataArray);
-          this.ctx.lineWidth = 2;
-          this.ctx.strokeStyle = '#007bff';
+        else if (modeIdx === 2 || (modeIdx > 12 && modeIdx % 8 === 2)) {
+          // Waveform Oscilloscope Variations
+          const timeData = new Uint8Array(bufferLength);
+          this.analyser.getByteTimeDomainData(timeData);
+          this.ctx.lineWidth = (modeIdx % 4) + 1;
+          this.ctx.strokeStyle = `hsl(${(modeIdx * 35 + this.time * 30) % 360}, 100%, 50%)`;
           this.ctx.beginPath();
-
           const sliceWidth = width * 1.0 / bufferLength;
           let x = 0;
-
           for (let i = 0; i < bufferLength; i++) {
-            const v = dataArray[i] / 128.0;
+            const v = timeData[i] / 128.0;
             const y = v * (height / 2);
             if (i === 0) this.ctx.moveTo(x, y);
             else this.ctx.lineTo(x, y);
@@ -412,22 +459,20 @@
           this.ctx.lineTo(width, height / 2);
           this.ctx.stroke();
         } 
-        // 3. RADIAL SPECTRUM
-        else if (this.mode === 'radial') {
-          this.analyser.getByteFrequencyData(dataArray);
+        else if (modeIdx === 3 || (modeIdx > 12 && modeIdx % 8 === 3)) {
+          // Radial Circle Spectrum Variations
           const centerX = width / 2;
           const centerY = height / 2;
-          const radius = 25;
-
+          const radius = 20 + (modeIdx % 15);
           for (let i = 0; i < bufferLength; i++) {
-            const barHeight = (dataArray[i] / 255) * 40;
-            const rad = (i * 2 * Math.PI) / bufferLength;
+            const barHeight = (dataArray[i] / 255) * (40 + (modeIdx % 20));
+            const rad = (i * 2 * Math.PI) / bufferLength + this.time * 0.2;
             const x1 = centerX + Math.cos(rad) * radius;
             const y1 = centerY + Math.sin(rad) * radius;
             const x2 = centerX + Math.cos(rad) * (radius + barHeight);
             const y2 = centerY + Math.sin(rad) * (radius + barHeight);
 
-            const hue = (i / bufferLength) * 360;
+            const hue = (i / bufferLength * 360 + modeIdx * 15) % 360;
             this.ctx.strokeStyle = `hsl(${hue}, 90%, 60%)`;
             this.ctx.lineWidth = 2;
             this.ctx.beginPath();
@@ -436,47 +481,43 @@
             this.ctx.stroke();
           }
         }
-        // 4. NEON PULSE RING
-        else if (this.mode === 'pulse') {
-          this.analyser.getByteFrequencyData(dataArray);
+        else if (modeIdx === 4 || (modeIdx > 12 && modeIdx % 8 === 4)) {
+          // Neon Pulse Ring
           let sum = 0;
           for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
           const avg = sum / bufferLength;
-
           const centerX = width / 2;
           const centerY = height / 2;
-          const radius = 20 + (avg / 255) * 45;
+          const radius = 15 + (avg / 255) * (50 + (modeIdx % 20));
 
           this.ctx.beginPath();
           this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-          this.ctx.strokeStyle = `hsl(${(avg * 3) % 360}, 100%, 50%)`;
-          this.ctx.lineWidth = 6;
+          const hue = (avg * 3 + modeIdx * 25) % 360;
+          this.ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`;
+          this.ctx.lineWidth = 4 + (modeIdx % 4);
           this.ctx.shadowBlur = 15;
-          this.ctx.shadowColor = `hsl(${(avg * 3) % 360}, 100%, 50%)`;
+          this.ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
           this.ctx.stroke();
-          this.ctx.shadowBlur = 0; // Reset
+          this.ctx.shadowBlur = 0;
         }
-        // 5. FLOATING PARTICLES
-        else if (this.mode === 'particles') {
-          this.analyser.getByteFrequencyData(dataArray);
+        else if (modeIdx === 5 || (modeIdx > 12 && modeIdx % 8 === 5)) {
+          // Floating Particles
           let sum = 0;
           for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
           const energy = sum / bufferLength;
 
           this.particles.forEach((p, idx) => {
-            p.y -= p.speedY * (1 + energy / 50);
+            p.y -= p.speedY * (1 + energy / 40);
             if (p.y < 0) p.y = height;
-
             this.ctx.beginPath();
-            this.ctx.arc(p.x, p.y, p.radius + (energy / 50), 0, Math.PI * 2);
-            this.ctx.fillStyle = `hsl(${(idx * 10 + energy * 2) % 360}, 90%, 60%)`;
+            this.ctx.arc(p.x, p.y, p.radius + (energy / 40), 0, Math.PI * 2);
+            this.ctx.fillStyle = `hsl(${(idx * 12 + energy * 2 + modeIdx * 10) % 360}, 90%, 60%)`;
             this.ctx.fill();
           });
         }
-        // 6. FREQUENCY HEATMAP
-        else if (this.mode === 'heatmap') {
-          this.analyser.getByteFrequencyData(dataArray);
-          const cols = 16;
+        else if (modeIdx === 6 || (modeIdx > 12 && modeIdx % 8 === 6)) {
+          // Frequency Heatmap / Matrix Grid
+          const cols = 16 + (modeIdx % 8);
           const rows = 8;
           const cellW = width / cols;
           const cellH = height / rows;
@@ -484,16 +525,43 @@
           for (let c = 0; c < cols; c++) {
             const freqVal = dataArray[c * 2] || 0;
             const activeRows = Math.floor((freqVal / 255) * rows);
-
             for (let r = 0; r < rows; r++) {
               if (rows - r <= activeRows) {
-                const hue = (r / rows) * 120; // Red to green
+                const hue = (r / rows) * 120 + modeIdx * 5;
                 this.ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
               } else {
-                this.ctx.fillStyle = `#1a1a22`;
+                this.ctx.fillStyle = `#181820`;
               }
               this.ctx.fillRect(c * cellW + 1, r * cellH + 1, cellW - 2, cellH - 2);
             }
+          }
+        }
+        else if (modeIdx === 7 || (modeIdx > 12 && modeIdx % 8 === 7)) {
+          // Laser Beams
+          for (let i = 0; i < bufferLength; i += 4) {
+            const beamLen = (dataArray[i] / 255) * height;
+            const x = (i / bufferLength) * width;
+            this.ctx.beginPath();
+            this.ctx.moveTo(width / 2, 0);
+            this.ctx.lineTo(x, beamLen);
+            this.ctx.strokeStyle = `hsl(${(i * 5 + modeIdx * 20) % 360}, 100%, 50%)`;
+            this.ctx.lineWidth = 1.5;
+            this.ctx.stroke();
+          }
+        }
+        else {
+          // DNA / Galaxy / Vortex / 3D Parametric fallback modes for 8..100
+          const centerX = width / 2;
+          const centerY = height / 2;
+          this.ctx.beginPath();
+          for (let i = 0; i < bufferLength; i += 2) {
+            const angle = i * 0.15 + this.time;
+            const amp = (dataArray[i] / 255) * 50;
+            const x = centerX + Math.cos(angle) * (i * 1.5 + amp);
+            const y = centerY + Math.sin(angle * 1.2) * (amp + (modeIdx % 30));
+            
+            this.ctx.fillStyle = `hsl(${(i * 10 + modeIdx * 12 + this.time * 50) % 360}, 90%, 60%)`;
+            this.ctx.fillRect(x - 2, y - 2, 4 + (amp / 10), 4 + (amp / 10));
           }
         }
       }
@@ -687,6 +755,8 @@
     const playerStationInput = document.getElementById('playerStationCodeInput');
     const visualizerModeSelect = document.getElementById('visualizerModeSelect');
     const broadcasterVolume = document.getElementById('broadcasterVolume');
+    const noTtsToggle = document.getElementById('noTtsToggle');
+    const ttsOverrideInput = document.getElementById('ttsOverrideInput');
 
     let trackQueue = [];
     let isPlayingQueueTrack = false;
@@ -776,9 +846,31 @@
 
     function announceTrack(currentTrack) {
       return new Promise((resolve) => {
-        let text = currentTrack.customMessage && currentTrack.customMessage.length > 0
-          ? currentTrack.customMessage
-          : `Playing on ${currentStationCode} is ${currentTrack.trackName} by ${currentTrack.artistName}.`;
+        // Check "No TTS" Toggle
+        if (noTtsToggle.checked) {
+          set(dbRef(database, `live_stations/${currentStationCode}`), {
+            state: 'ANNOUNCING',
+            speechText: "",
+            trackName: currentTrack.trackName,
+            artistName: currentTrack.artistName,
+            visualizerMode: visualizerModeSelect.value,
+            startTime: Date.now()
+          });
+          resolve();
+          return;
+        }
+
+        // Determine Speech Text (Override Input > Custom Message > Default Speech)
+        const globalOverride = ttsOverrideInput.value.trim();
+        let text = "";
+
+        if (globalOverride.length > 0) {
+          text = globalOverride;
+        } else if (currentTrack.customMessage && currentTrack.customMessage.length > 0) {
+          text = currentTrack.customMessage;
+        } else {
+          text = `Playing on ${currentStationCode} is ${currentTrack.trackName} by ${currentTrack.artistName}.`;
+        }
 
         set(dbRef(database, `live_stations/${currentStationCode}`), {
           state: 'ANNOUNCING',
@@ -887,7 +979,6 @@
     let currentLiveTimestamp = null;
     let currentAnnouncementText = null;
     let isListenerConnected = false;
-    let activeDbListener = null;
 
     // Volume adjustment for listener
     listenerVolume.addEventListener('input', (e) => {
@@ -915,7 +1006,7 @@
     });
 
     function speakListenerAnnouncement(text) {
-      if (!('speechSynthesis' in window)) return;
+      if (!text || text.trim() === "" || !('speechSynthesis' in window)) return;
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       const voice = getBestHumanVoice();
@@ -959,7 +1050,7 @@
       listenerStatusBadge.textContent = `TUNED TO ${code}`;
 
       onValue(dbRef(database, `live_stations/${code}`), (snapshot) => {
-        if (!isListenerConnected) return; // Prevent updates if stopped
+        if (!isListenerConnected) return;
         
         const liveData = snapshot.val();
         
@@ -998,7 +1089,7 @@
           listenerStatusBadge.className = "status-badge status-announcing";
           listenerStatusBadge.textContent = "LIVE DJ ANNOUNCEMENT";
 
-          if (currentAnnouncementText !== liveData.speechText) {
+          if (liveData.speechText && currentAnnouncementText !== liveData.speechText) {
             currentAnnouncementText = liveData.speechText;
             speakListenerAnnouncement(liveData.speechText);
           }
